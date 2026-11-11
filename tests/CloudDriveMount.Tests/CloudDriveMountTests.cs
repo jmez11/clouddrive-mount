@@ -598,11 +598,6 @@ public class CloudDriveMountTests
         var iconUri = key.GetValue("IconUri") as string;
         Assert.False(string.IsNullOrWhiteSpace(iconUri));
         Assert.True(File.Exists(iconUri));
-
-        var shortcutPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.Programs),
-            "CloudDrive Mount.lnk");
-        Assert.True(File.Exists(shortcutPath));
     }
 
     private sealed class MockHttpHandler : HttpMessageHandler

@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Drawing;
-using System.Reflection;
 using System.Windows.Forms;
 using CloudDriveMount.Core.Models;
 using CloudDriveMount.Core.Services;
@@ -57,7 +56,6 @@ public sealed class SystemTrayService : IDisposable
             Visible = true,
             ContextMenuStrip = _menu
         };
-        BindNotifyIconWindowAumid();
 
         _notifyIcon.DoubleClick += (_, _) => _showMainWindow();
     }
@@ -67,22 +65,7 @@ public sealed class SystemTrayService : IDisposable
         try
         {
             ExplorerIconManager.EnsureAppNotificationIdentity();
-            BindNotifyIconWindowAumid();
             _notifyIcon.ShowBalloonTip(3000, title, message, icon);
-        }
-        catch { }
-    }
-
-    private void BindNotifyIconWindowAumid()
-    {
-        try
-        {
-            var windowField = typeof(NotifyIcon).GetField("window", BindingFlags.NonPublic | BindingFlags.Instance)
-                           ?? typeof(NotifyIcon).GetField("_window", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (windowField?.GetValue(_notifyIcon) is NativeWindow nw && nw.Handle != IntPtr.Zero)
-            {
-                ExplorerIconManager.SetWindowAppUserModelId(nw.Handle);
-            }
         }
         catch { }
     }

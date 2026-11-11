@@ -7,6 +7,12 @@
     <UseWindowsForms>true</UseWindowsForms>
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>0.1.1</Version>
+    <Company>Oceanside-VR</Company>
+    <Product>CloudDrive Mount for Windows</Product>
+    <Description>CloudDrive Mount virtual filesystem client for Windows</Description>
+    <Copyright>Copyright © 2026 Oceanside-VR</Copyright>
+    <Authors>Oceanside-VR</Authors>
   </PropertyGroup>
 
   <ItemGroup>

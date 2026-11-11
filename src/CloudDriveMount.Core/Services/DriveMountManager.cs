@@ -83,9 +83,19 @@ public class DriveMountManager : IDisposable
         string[] candidates =
         [
             Path.Combine(AppContext.BaseDirectory, "winfsp.msi"),
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "lib", "winfsp", "winfsp.msi"),
-            @"C:\dev\clouddrive-mount\lib\winfsp\winfsp.msi"
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "lib", "winfsp", "winfsp.msi")
         ];
+
+        if (!string.IsNullOrEmpty(Environment.ProcessPath))
+        {
+            var exeDir = Path.GetDirectoryName(Environment.ProcessPath);
+            if (!string.IsNullOrEmpty(exeDir))
+            {
+                var sideBySide = Path.Combine(exeDir, "winfsp.msi");
+                if (File.Exists(sideBySide))
+                    return sideBySide;
+            }
+        }
 
         foreach (var path in candidates)
         {
@@ -98,8 +108,16 @@ public class DriveMountManager : IDisposable
 
     public static async Task<bool> InstallBundledWinFspAsync()
     {
-        var msiPath = GetBundledWinFspMsiPath()
-            ?? throw new FileNotFoundException("Bundled winfsp.msi was not found.");
+        var msiPath = GetBundledWinFspMsiPath();
+        if (msiPath == null)
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://winfsp.dev/rel/",
+                UseShellExecute = true
+            });
+            return false;
+        }
 
         var psi = new ProcessStartInfo
         {

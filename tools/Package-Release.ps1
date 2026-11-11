@@ -28,9 +28,9 @@ Write-Host "Publishing CloudDriveMount ($Configuration / $Runtime)..." -Foregrou
     --self-contained true `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:IncludeAllContentForSelfExtract=true `
-    -p:EnableCompressionInSingleFile=true `
-    -p:DebugType=embedded `
+    -p:EnableCompressionInSingleFile=false `
+    -p:DebugType=none `
+    -p:DebugSymbols=false `
     -o $PublishDir `
     --nologo
 
@@ -81,6 +81,19 @@ if ($Sign) {
             $CertificatePassword,
             [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable -bor [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet
         )
+    } else {
+        Write-Host "No certificate secret configured; generating self-signed release code-signing certificate via .NET..." -ForegroundColor Yellow
+        $rsa = [System.Security.Cryptography.RSA]::Create(2048)
+        $req = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
+            "CN=CloudDrive Mount Release, O=Oceanside-VR",
+            $rsa,
+            [System.Security.Cryptography.HashAlgorithmName]::SHA256,
+            [System.Security.Cryptography.RSASignaturePadding]::Pkcs1
+        )
+        $oids = [System.Security.Cryptography.OidCollection]::new()
+        $null = $oids.Add([System.Security.Cryptography.Oid]::new("1.3.6.1.5.5.7.3.3"))
+        $req.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new($oids, $false))
+        $cert = $req.CreateSelfSigned((Get-Date).AddDays(-1), (Get-Date).AddYears(5))
     }
 
     if ($cert) {
@@ -107,6 +120,9 @@ if ($Sign) {
                 $null = Set-AuthenticodeSignature -FilePath $TargetExe -Certificate $cert -HashAlgorithm SHA256 -ErrorAction Stop
                 Write-Host "Applied Authenticode signature (without timestamp)." -ForegroundColor Green
             }
+
+            $sigStatus = Get-AuthenticodeSignature -FilePath $TargetExe
+            Write-Host "Signature Status: $($sigStatus.Status) ($($sigStatus.StatusMessage))" -ForegroundColor Cyan
         } catch {
             Write-Warning "Failed to sign binary: $_"
         }
@@ -126,6 +142,10 @@ $FilesToZip = @(
     $TargetExe,
     "$TargetExe.sha256"
 )
+$WinFspMsi = Join-Path $RepoRoot "lib\winfsp\winfsp.msi"
+if (Test-Path $WinFspMsi) {
+    $FilesToZip += $WinFspMsi
+}
 $PublicCertPath = Join-Path $OutputDir "CloudDriveMount-public.cer"
 if (Test-Path $PublicCertPath) {
     $FilesToZip += $PublicCertPath
