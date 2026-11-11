@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
+using CloudDriveMount.App.Views;
 using CloudDriveMount.Core.Models;
 using CloudDriveMount.Core.Services;
 using Microsoft.Win32;
@@ -64,8 +65,7 @@ public sealed class SystemTrayService : IDisposable
     {
         try
         {
-            ExplorerIconManager.EnsureAppNotificationIdentity();
-            _notifyIcon.ShowBalloonTip(3000, title, message, icon);
+            ToastNotificationWindow.ShowToast(title, message, _showMainWindow);
         }
         catch { }
     }
