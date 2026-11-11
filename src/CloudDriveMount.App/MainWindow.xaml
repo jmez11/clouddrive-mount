@@ -1,0 +1,205 @@
+<Window x:Class="CloudDriveMount.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="CloudDrive Mount"
+        Width="860"
+        Height="560"
+        MinWidth="740"
+        MinHeight="440"
+        WindowStartupLocation="CenterScreen"
+        Background="#1A1A1A"
+        Foreground="#F0F0F0"
+        FontFamily="Segoe UI">
+
+    <Window.Resources>
+        <Style x:Key="ToolbarBtn" TargetType="Button">
+            <Setter Property="Background" Value="#2D2D2D" />
+            <Setter Property="Foreground" Value="#F0F0F0" />
+            <Setter Property="BorderBrush" Value="#4D4D4D" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="14,7" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#3C3C3C" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="AccentBtn" TargetType="Button" BasedOn="{StaticResource ToolbarBtn}">
+            <Setter Property="Background" Value="#1E6B3E" />
+            <Setter Property="BorderBrush" Value="#43A047" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#26854E" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header Bar -->
+        <Border Grid.Row="0"
+                Background="#232323"
+                BorderBrush="#363636"
+                BorderThickness="0,0,0,1"
+                Padding="20,14">
+            <DockPanel>
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                    <Image x:Name="AppLogoImage"
+                           Width="36"
+                           Height="36"
+                           Margin="0,0,12,0"
+                           VerticalAlignment="Center" />
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="CloudDrive Mount"
+                                   FontSize="19"
+                                   FontWeight="Bold"
+                                   Foreground="#FFFFFF" />
+                        <TextBlock Text="SFTP • FTP • WebDAV • Google Drive • Cloudflare R2 (R/W + Native cloudflared)"
+                                   FontSize="12"
+                                   Foreground="#9E9E9E" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center">
+                    <Button Content="+ New Drive"
+                            Style="{StaticResource AccentBtn}"
+                            Margin="0,0,8,0"
+                            Click="OnNewDriveClick" />
+                    <Button Content="Connect All"
+                            Style="{StaticResource ToolbarBtn}"
+                            Margin="0,0,8,0"
+                            Click="OnConnectAllClick" />
+                    <Button Content="Disconnect All"
+                            Style="{StaticResource ToolbarBtn}"
+                            Click="OnDisconnectAllClick" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Driver & Tunnel Environment Banner -->
+        <Border Grid.Row="1"
+                Background="#1F2428"
+                BorderBrush="#30363D"
+                BorderThickness="0,0,0,1"
+                Padding="20,8">
+            <DockPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock x:Name="WinFspStatusText"
+                               Text="● WinFsp Driver: Checking..."
+                               FontSize="12.5"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center"
+                               Margin="0,0,14,0" />
+                    <Button x:Name="InstallWinFspBtn"
+                            Content="Install Bundled WinFsp Driver"
+                            Style="{StaticResource ToolbarBtn}"
+                            Padding="10,3"
+                            FontSize="12"
+                            Visibility="Collapsed"
+                            Click="OnInstallWinFspClick" />
+                </StackPanel>
+
+                <TextBlock x:Name="CloudflaredStatusText"
+                           DockPanel.Dock="Right"
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Center"
+                           FontSize="12.5"
+                           Foreground="#90CAF9" />
+            </DockPanel>
+        </Border>
+
+        <!-- Drives List -->
+        <Grid Grid.Row="2" Margin="20,14">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="DrivesItemsControl" />
+            </ScrollViewer>
+
+            <!-- Empty State -->
+            <Border x:Name="EmptyStatePanel"
+                    Background="#212121"
+                    BorderBrush="#333333"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="36"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Visibility="Collapsed">
+                <StackPanel HorizontalAlignment="Center">
+                    <TextBlock Text="No Cloud or NAS Drives Configured"
+                               FontSize="17"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Center"
+                               Margin="0,0,0,6" />
+                    <TextBlock Text="Mount SFTP, FTP, WebDAV, Google Drive, or Cloudflare R2 as Windows drives with custom Explorer icons."
+                               FontSize="13"
+                               Foreground="#9E9E9E"
+                               HorizontalAlignment="Center"
+                               Margin="0,0,0,16" />
+                    <Button Content="+ Add Your First Drive"
+                            Style="{StaticResource AccentBtn}"
+                            HorizontalAlignment="Center"
+                            Click="OnNewDriveClick" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Footer Bar -->
+        <Border Grid.Row="3"
+                Background="#232323"
+                BorderBrush="#363636"
+                BorderThickness="0,1,0,0"
+                Padding="20,10">
+            <DockPanel>
+                <TextBlock x:Name="FooterStatusText"
+                           Text="Running in Windows System Tray. Closing this window keeps mounted drives active."
+                           FontSize="12"
+                           Foreground="#9E9E9E"
+                           VerticalAlignment="Center" />
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Minimize to Tray"
+                            Style="{StaticResource ToolbarBtn}"
+                            Padding="12,5"
+                            FontSize="12"
+                            Margin="0,0,8,0"
+                            Click="OnMinimizeToTrayClick" />
+                    <Button Content="Quit &amp; Unmount All"
+                            Style="{StaticResource ToolbarBtn}"
+                            Padding="12,5"
+                            FontSize="12"
+                            Foreground="#EF9A9A"
+                            Click="OnQuitApplicationClick" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

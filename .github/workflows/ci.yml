@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8 (no cache to avoid Actions storage usage)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+          cache: false
+
+      - name: Restore dependencies
+        run: dotnet restore CloudDriveMount.sln
+
+      - name: Build solution
+        run: dotnet build CloudDriveMount.sln -c Release --no-restore
+
+      - name: Run unit tests
+        run: dotnet test CloudDriveMount.sln -c Release --no-build --verbosity normal
+
+      - name: Verify single-file release packaging (no artifact upload to preserve Actions storage)
+        shell: pwsh
+        run: ./tools/Package-Release.ps1 -Configuration Release -NoSign

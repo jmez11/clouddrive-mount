@@ -1,0 +1,87 @@
+name: Release CI
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for release (e.g. v0.1.0)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: Build, sign, and publish release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 8 (no cache to avoid Actions storage usage)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+          cache: false
+
+      - name: Restore dependencies
+        run: dotnet restore CloudDriveMount.sln
+
+      - name: Build solution
+        run: dotnet build CloudDriveMount.sln -c Release --no-restore
+
+      - name: Run unit tests
+        run: dotnet test CloudDriveMount.sln -c Release --no-build --verbosity normal
+
+      - name: Package and sign CloudDriveMount.exe
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 || secrets.WINDOWS_CERTIFICATE_BASE64 || secrets.SIGNING_CERTIFICATE_BASE64 }}
+          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD || secrets.WINDOWS_CERTIFICATE_PASSWORD || secrets.SIGNING_CERTIFICATE_PASSWORD }}
+        run: ./tools/Package-Release.ps1 -Configuration Release
+
+      - name: Create GitHub Release (direct upload without Actions artifact storage)
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || (inputs.tag_name != '' && inputs.tag_name != null)
+        with:
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
+          files: |
+            dist/CloudDriveMount.exe
+            dist/CloudDriveMount.exe.sha256
+            dist/CloudDriveMount-win-x64.zip
+            dist/CloudDriveMount-win-x64.zip.sha256
+            dist/*.cer
+          name: CloudDrive Mount ${{ inputs.tag_name || github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          prerelease: ${{ contains(inputs.tag_name || github.ref_name, '-') || contains(inputs.tag_name || github.ref_name, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Purge any Actions artifacts and caches (zero storage footprint)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $artifacts = gh api "repos/$env:GH_REPO/actions/artifacts" --paginate --jq '.artifacts[].id' 2>$null
+          foreach ($id in $artifacts) {
+            if ($id) { gh api -X DELETE "repos/$env:GH_REPO/actions/artifacts/$id" 2>$null | Out-Null }
+          }
+          $caches = gh api "repos/$env:GH_REPO/actions/caches" --paginate --jq '.actions_caches[].id' 2>$null
+          foreach ($id in $caches) {
+            if ($id) { gh api -X DELETE "repos/$env:GH_REPO/actions/caches/$id" 2>$null | Out-Null }
+          }

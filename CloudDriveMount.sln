@@ -1,0 +1,43 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{80A7C4B3-A841-415E-A46E-007CFEC6D486}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CloudDriveMount.Core", "src\CloudDriveMount.Core\CloudDriveMount.Core.csproj", "{FAAD2F17-1CA6-4DEF-9B6E-87F4BCD3B895}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CloudDriveMount.App", "src\CloudDriveMount.App\CloudDriveMount.App.csproj", "{210C1830-3EF6-4698-BB9D-99FEAC3C745C}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{94952335-3AD9-4441-B51D-EA86D2EF90A6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CloudDriveMount.Tests", "tests\CloudDriveMount.Tests\CloudDriveMount.Tests.csproj", "{66326B25-B205-40E1-9896-A545AC2E8233}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FAAD2F17-1CA6-4DEF-9B6E-87F4BCD3B895}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FAAD2F17-1CA6-4DEF-9B6E-87F4BCD3B895}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FAAD2F17-1CA6-4DEF-9B6E-87F4BCD3B895}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FAAD2F17-1CA6-4DEF-9B6E-87F4BCD3B895}.Release|Any CPU.Build.0 = Release|Any CPU
+		{210C1830-3EF6-4698-BB9D-99FEAC3C745C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{210C1830-3EF6-4698-BB9D-99FEAC3C745C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{210C1830-3EF6-4698-BB9D-99FEAC3C745C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{210C1830-3EF6-4698-BB9D-99FEAC3C745C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{66326B25-B205-40E1-9896-A545AC2E8233}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{66326B25-B205-40E1-9896-A545AC2E8233}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{66326B25-B205-40E1-9896-A545AC2E8233}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{66326B25-B205-40E1-9896-A545AC2E8233}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{FAAD2F17-1CA6-4DEF-9B6E-87F4BCD3B895} = {80A7C4B3-A841-415E-A46E-007CFEC6D486}
+		{210C1830-3EF6-4698-BB9D-99FEAC3C745C} = {80A7C4B3-A841-415E-A46E-007CFEC6D486}
+		{66326B25-B205-40E1-9896-A545AC2E8233} = {94952335-3AD9-4441-B51D-EA86D2EF90A6}
+	EndGlobalSection
+EndGlobal

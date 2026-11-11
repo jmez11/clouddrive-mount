@@ -1,0 +1,35 @@
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+dist/
+publish/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+# Keep bundled WinFsp redistributables required for build & runtime
+!lib/winfsp/
+!lib/winfsp/**
+
+# Local portable mode or test artifacts
+portable.mode
+config/
+cache/
+*.msi
+!lib/winfsp/winfsp.msi

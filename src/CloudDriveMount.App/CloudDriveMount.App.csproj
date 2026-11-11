@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>CloudDriveMount</AssemblyName>
+    <AssemblyTitle>CloudDrive Mount</AssemblyTitle>
+    <Product>CloudDrive Mount</Product>
+    <Company>CloudDrive Mount</Company>
+    <Description>CloudDrive Mount — SFTP, FTP, WebDAV, Google Drive &amp; Cloudflare R2 Virtual Drives</Description>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CloudDriveMount.Core\CloudDriveMount.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\lib\winfsp\winfsp.msi" Link="winfsp.msi">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

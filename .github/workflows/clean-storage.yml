@@ -1,0 +1,53 @@
+name: Clean Actions Storage
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/clean-storage.yml'
+
+permissions:
+  actions: write
+
+jobs:
+  purge:
+    name: Purge all Actions artifacts and caches
+    runs-on: ubuntu-latest
+    steps:
+      - name: Purge all artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          echo "Querying all Actions artifacts for $GH_REPO..."
+          artifacts=$(gh api "repos/$GH_REPO/actions/artifacts" --paginate --jq '.artifacts[].id' || true)
+          if [ -z "$artifacts" ]; then
+            echo "No artifacts found in storage."
+          else
+            count=0
+            for id in $artifacts; do
+              echo "Deleting artifact ID: $id"
+              gh api -X DELETE "repos/$GH_REPO/actions/artifacts/$id" || true
+              count=$((count + 1))
+            done
+            echo "Successfully purged $count artifact(s)."
+          fi
+
+      - name: Purge all caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          echo "Querying all Actions caches for $GH_REPO..."
+          caches=$(gh api "repos/$GH_REPO/actions/caches" --paginate --jq '.actions_caches[].id' || true)
+          if [ -z "$caches" ]; then
+            echo "No caches found in storage."
+          else
+            count=0
+            for id in $caches; do
+              echo "Deleting cache ID: $id"
+              gh api -X DELETE "repos/$GH_REPO/actions/caches/$id" || true
+              count=$((count + 1))
+            done
+            echo "Successfully purged $count cache(s)."
+          fi
