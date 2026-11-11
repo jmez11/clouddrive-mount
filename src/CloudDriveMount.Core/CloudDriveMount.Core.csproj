@@ -4,10 +4,10 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <UseWindowsForms>true</UseWindowsForms>
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>0.1.2</Version>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Version>0.1.3</Version>
     <Company>Oceanside-VR</Company>
     <Product>CloudDrive Mount for Windows</Product>
     <Description>CloudDrive Mount virtual filesystem client for Windows</Description>

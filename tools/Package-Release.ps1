@@ -27,6 +27,10 @@ Write-Host "Publishing CloudDriveMount ($Configuration / $Runtime)..." -Foregrou
     -r $Runtime `
     --self-contained true `
     -p:PublishSingleFile=true `
+    -p:PublishTrimmed=true `
+    -p:TrimMode=partial `
+    -p:BuiltInComInteropSupport=true `
+    -p:_SuppressWpfTrimError=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:EnableCompressionInSingleFile=false `
     -p:DebugType=none `
