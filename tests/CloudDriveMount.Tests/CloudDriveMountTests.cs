@@ -121,9 +121,17 @@ public class CloudDriveMountTests
     [Fact]
     public void ExplorerIconManager_GeneratesAppExeIconAsset()
     {
-        var assetPath = @"C:\dev\clouddrive-mount\src\CloudDriveMount.App\Assets\app.ico";
-        ExplorerIconManager.SaveAppIconFile(assetPath);
-        Assert.True(File.Exists(assetPath));
+        var assetPath = Path.Combine(Path.GetTempPath(), $"clouddrive_test_{Guid.NewGuid():N}.ico");
+        try
+        {
+            ExplorerIconManager.SaveAppIconFile(assetPath);
+            Assert.True(File.Exists(assetPath));
+        }
+        finally
+        {
+            if (File.Exists(assetPath))
+                File.Delete(assetPath);
+        }
     }
 
     [Fact]
@@ -137,29 +145,54 @@ public class CloudDriveMountTests
             IsLocalDisk = false
         };
         const string uncPrefix = @"\CloudDriveMount\Plex Max";
-        using var mem = new InMemoryCloudStorageProvider();
-        using var fs = new CloudDriveFileSystem(cfg, mem);
-        using var host = new FileSystemHost(fs);
-        host.Prefix = uncPrefix;
 
         ExplorerIconManager.RegisterDriveIconAndLabel(cfg, uncPrefix);
-        int st = host.Mount("P:", null, false, 0);
         try
         {
-            Assert.True(st >= 0);
-            ExplorerIconManager.RegisterDriveIconAndLabel(cfg, uncPrefix);
+            using var classesIconKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Classes\Applications\Explorer.exe\Drives\P\DefaultIcon", writable: false);
+            Assert.NotNull(classesIconKey);
+            Assert.EndsWith("drive_sftp_p.ico", classesIconKey.GetValue("") as string ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 
-            var sfiName = new SHFILEINFOW();
-            SHGetFileInfoW("P:\\", 0, ref sfiName, (uint)Marshal.SizeOf<SHFILEINFOW>(), 0x200 | 0x400);
-            var sfiIcon = new SHFILEINFOW();
-            SHGetFileInfoW("P:\\", 0, ref sfiIcon, (uint)Marshal.SizeOf<SHFILEINFOW>(), 0x1000);
+            using var classesLabelKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Classes\Applications\Explorer.exe\Drives\P\DefaultLabel", writable: false);
+            Assert.NotNull(classesLabelKey);
+            Assert.Equal("Plex Max", classesLabelKey.GetValue("") as string);
 
-            Assert.Equal("Plex Max (P:)", sfiName.szDisplayName);
-            Assert.EndsWith("drive_sftp_p.ico", sfiIcon.szDisplayName, StringComparison.OrdinalIgnoreCase);
+            using var mpKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Explorer\MountPoints2\##CloudDriveMount#Plex Max", writable: false);
+            Assert.NotNull(mpKey);
+            Assert.Equal("Plex Max", mpKey.GetValue("_LabelFromReg") as string);
+
+            if (DriveMountManager.IsWinFspInstalled())
+            {
+                using var mem = new InMemoryCloudStorageProvider();
+                using var fs = new CloudDriveFileSystem(cfg, mem);
+                using var host = new FileSystemHost(fs);
+                host.Prefix = uncPrefix;
+
+                int st = host.Mount("P:", null, false, 0);
+                try
+                {
+                    Assert.True(st >= 0);
+                    ExplorerIconManager.RegisterDriveIconAndLabel(cfg, uncPrefix);
+
+                    var sfiName = new SHFILEINFOW();
+                    SHGetFileInfoW("P:\\", 0, ref sfiName, (uint)Marshal.SizeOf<SHFILEINFOW>(), 0x200 | 0x400);
+                    var sfiIcon = new SHFILEINFOW();
+                    SHGetFileInfoW("P:\\", 0, ref sfiIcon, (uint)Marshal.SizeOf<SHFILEINFOW>(), 0x1000);
+
+                    Assert.Equal("Plex Max (P:)", sfiName.szDisplayName);
+                    Assert.EndsWith("drive_sftp_p.ico", sfiIcon.szDisplayName, StringComparison.OrdinalIgnoreCase);
+                }
+                finally
+                {
+                    if (st >= 0) host.Unmount();
+                }
+            }
         }
         finally
         {
-            if (st >= 0) host.Unmount();
             ExplorerIconManager.UnregisterDriveIconAndLabel('P', uncPrefix);
         }
     }
