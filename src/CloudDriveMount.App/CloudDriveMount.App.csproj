@@ -8,11 +8,7 @@
     <UseWPF>true</UseWPF>
     <PlatformTarget>x64</PlatformTarget>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
-    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
-    <_SuppressWpfTrimError>true</_SuppressWpfTrimError>
-    <TrimMode>partial</TrimMode>
-    <Version>0.1.3</Version>
+    <Version>0.1.4</Version>
     <Company>Oceanside-VR</Company>
     <Product>CloudDrive Mount for Windows</Product>
     <AssemblyTitle>CloudDrive Mount</AssemblyTitle>
@@ -26,42 +22,5 @@
   <ItemGroup>
     <ProjectReference Include="..\CloudDriveMount.Core\CloudDriveMount.Core.csproj" />
   </ItemGroup>
-
-  <!-- Strip unused WinForms, XPS, Ribbon, DirectX shader compiler, and crash-dump payloads from WindowsDesktop runtime pack -->
-  <Target Name="StripUnusedWindowsDesktopPayloads" AfterTargets="ComputeResolvedFilesToPublishList" BeforeTargets="ILLink;_ComputeFilesToBundle">
-    <ItemGroup>
-      <_UnusedDesktopPayload Include="@(ResolvedFileToPublish)" Condition="
-        $([System.String]::Copy('%(Filename)').StartsWith('System.Windows.Forms')) or
-        '%(Filename)' == 'WindowsFormsIntegration' or
-        '%(Filename)' == 'System.Design' or
-        '%(Filename)' == 'System.Drawing.Design' or
-        $([System.String]::Copy('%(Filename)').StartsWith('Microsoft.VisualBasic')) or
-        '%(Filename)' == 'ReachFramework' or
-        '%(Filename)' == 'PresentationUI' or
-        '%(Filename)' == 'PresentationFramework.Luna' or
-        '%(Filename)' == 'PresentationFramework.Royale' or
-        '%(Filename)' == 'PresentationFramework.Classic' or
-        '%(Filename)' == 'System.Printing' or
-        '%(Filename)' == 'System.Windows.Controls.Ribbon' or
-        '%(Filename)' == 'System.Windows.Input.Manipulations' or
-        '%(Filename)' == 'System.Windows.Presentation' or
-        '%(Filename)' == 'D3DCompiler_47_cor3' or
-        '%(Filename)' == 'PenImc_cor3' or
-        '%(Filename)' == 'Microsoft.DiaSymReader.Native.amd64' or
-        $([System.String]::Copy('%(Filename)').StartsWith('mscordaccore')) or
-        '%(Filename)' == 'mscordbi' or
-        '%(Filename)' == 'createdump'" />
-      <ResolvedFileToPublish Remove="@(_UnusedDesktopPayload)" />
-    </ItemGroup>
-  </Target>
-
-  <Target Name="TrimThirdPartyCryptoPayloads" BeforeTargets="PrepareForILLink">
-    <ItemGroup>
-      <ManagedAssemblyToLink Condition="'%(Filename)' == 'BouncyCastle.Cryptography'">
-        <IsTrimmable>true</IsTrimmable>
-        <TrimMode>link</TrimMode>
-      </ManagedAssemblyToLink>
-    </ItemGroup>
-  </Target>
 
 </Project>
