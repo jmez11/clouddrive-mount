@@ -2,9 +2,6 @@ name: Clean Actions Storage
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/clean-storage.yml'
 
 permissions:
   actions: write
