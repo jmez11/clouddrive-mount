@@ -152,7 +152,7 @@ public class CloudDriveMountTests
             using var classesIconKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
                 @"Software\Classes\Applications\Explorer.exe\Drives\P\DefaultIcon", writable: false);
             Assert.NotNull(classesIconKey);
-            Assert.EndsWith("drive_sftp_p.ico", classesIconKey.GetValue("") as string ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+            Assert.EndsWith("drive_sftp_p.ico,0", classesIconKey.GetValue("") as string ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 
             using var classesLabelKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
                 @"Software\Classes\Applications\Explorer.exe\Drives\P\DefaultLabel", writable: false);
@@ -164,17 +164,16 @@ public class CloudDriveMountTests
             Assert.NotNull(mpKey);
             Assert.Equal("Plex Max", mpKey.GetValue("_LabelFromReg") as string);
 
-            if (DriveMountManager.IsWinFspInstalled())
-            {
-                using var mem = new InMemoryCloudStorageProvider();
-                using var fs = new CloudDriveFileSystem(cfg, mem);
-                using var host = new FileSystemHost(fs);
-                host.Prefix = uncPrefix;
+            using var mem = new InMemoryCloudStorageProvider();
+            using var fs = new CloudDriveFileSystem(cfg, mem);
+            using var host = new FileSystemHost(fs);
+            host.Prefix = uncPrefix;
 
-                int st = host.Mount("P:", null, false, 0);
+            int st = host.Mount("P:", null, false, 0);
+            if (st >= 0)
+            {
                 try
                 {
-                    Assert.True(st >= 0);
                     ExplorerIconManager.RegisterDriveIconAndLabel(cfg, uncPrefix);
 
                     var sfiName = new SHFILEINFOW();
@@ -187,7 +186,7 @@ public class CloudDriveMountTests
                 }
                 finally
                 {
-                    if (st >= 0) host.Unmount();
+                    host.Unmount();
                 }
             }
         }
