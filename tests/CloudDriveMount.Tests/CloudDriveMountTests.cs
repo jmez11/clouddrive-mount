@@ -557,7 +557,7 @@ public class CloudDriveMountTests
         fs.Close(metaNode, metaDesc);
         Assert.Equal(0, memProvider.DownloadCount); // 0 network downloads!
 
-        // 2. First Open -> Read -> Close downloads once and populates retained disk cache
+        // 2. First Open -> Read -> Close reads on-demand chunk without downloading the entire file
         Assert.Equal(FileSystemBase.STATUS_SUCCESS,
             fs.Open("\\seeded.txt", 0, 0, out var r1Node, out var r1Desc, out _, out _));
         var buf = Marshal.AllocHGlobal(seedBytes.Length);
@@ -567,16 +567,69 @@ public class CloudDriveMountTests
                 fs.Read(r1Node, r1Desc, buf, 0, (uint)seedBytes.Length, out uint read1));
             Assert.Equal((uint)seedBytes.Length, read1);
             fs.Close(r1Node, r1Desc);
-            Assert.Equal(1, memProvider.DownloadCount);
+            Assert.Equal(1, memProvider.RangeReadCount);
+            Assert.Equal(0, memProvider.DownloadCount); // Zero full-file blocking downloads!
 
-            // 3. Second Open -> Read -> Close hits the retained disk cache (still only 1 total download!)
+            // 3. Second Open -> Read -> Close hits the in-memory chunk cache (still only 1 total range read!)
             Assert.Equal(FileSystemBase.STATUS_SUCCESS,
                 fs.Open("\\seeded.txt", 0, 0, out var r2Node, out var r2Desc, out _, out _));
             Assert.Equal(FileSystemBase.STATUS_SUCCESS,
                 fs.Read(r2Node, r2Desc, buf, 0, (uint)seedBytes.Length, out uint read2));
             Assert.Equal((uint)seedBytes.Length, read2);
             fs.Close(r2Node, r2Desc);
-            Assert.Equal(1, memProvider.DownloadCount);
+            Assert.Equal(1, memProvider.RangeReadCount);
+            Assert.Equal(0, memProvider.DownloadCount);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buf);
+        }
+    }
+
+    [Fact]
+    public void CloudDriveFileSystem_LargeVideoFile_ReadsHeaderAndFooterWithoutDownloadingFullFile()
+    {
+        var cfg = new DriveConfig
+        {
+            Id = Guid.NewGuid(),
+            Protocol = StorageProtocol.GoogleDrive,
+            DriveLetter = "W",
+            Label = "Google Drive"
+        };
+
+        using var memProvider = new InMemoryCloudStorageProvider();
+        // Simulate a 3.5 GB video file (3,554,615,000 bytes)
+        const ulong largeFileSize = 3_554_615_000UL;
+        memProvider.SeedVirtualFile("/TV/The Daily Show/Season 31/The Daily Show - S31E01.mkv", largeFileSize);
+
+        using var fs = new CloudDriveFileSystem(cfg, memProvider);
+
+        // 1. Open the 3.5 GB video file
+        Assert.Equal(FileSystemBase.STATUS_SUCCESS,
+            fs.Open("\\TV\\The Daily Show\\Season 31\\The Daily Show - S31E01.mkv", 0, 0, out var node, out var desc, out var info, out _));
+        Assert.Equal(largeFileSize, info.FileSize);
+
+        // 2. Read first 64 KB (header / Matroska EBML metadata)
+        const uint readLength = 65536;
+        var buf = Marshal.AllocHGlobal((int)readLength);
+        try
+        {
+            Assert.Equal(FileSystemBase.STATUS_SUCCESS,
+                fs.Read(node, desc, buf, 0, readLength, out uint pRead1));
+            Assert.Equal(readLength, pRead1);
+
+            // 3. Read 64 KB from the end (Matroska seekhead / cues index)
+            ulong endOffset = largeFileSize - readLength;
+            Assert.Equal(FileSystemBase.STATUS_SUCCESS,
+                fs.Read(node, desc, buf, endOffset, readLength, out uint pRead2));
+            Assert.Equal(readLength, pRead2);
+
+            fs.Close(node, desc);
+
+            // Crucial verification: zero full-file blocking downloads! Explorer will not hang!
+            Assert.Equal(0, memProvider.DownloadCount);
+            // Exactly 2 range reads (one for start chunk, one for end chunk)
+            Assert.Equal(2, memProvider.RangeReadCount);
         }
         finally
         {
@@ -611,10 +664,53 @@ public class CloudDriveMountTests
     private sealed class InMemoryCloudStorageProvider : ICloudStorageProvider
     {
         private readonly Dictionary<string, (byte[] Data, DateTime ModUtc)> _files = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, ulong> _virtualFileSizes = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _dirs = new(StringComparer.OrdinalIgnoreCase) { "/" };
 
         public int DownloadCount { get; private set; }
+        public int RangeReadCount { get; private set; }
         public bool SimulateRemoteLockConflict { get; set; }
+
+        public void SeedVirtualFile(string virtualPath, ulong size)
+        {
+            var norm = VirtualPathHelper.NormalizeVirtualPath(virtualPath);
+            _virtualFileSizes[norm] = size;
+            var parent = VirtualPathHelper.GetParentPath(norm);
+            while (!string.IsNullOrEmpty(parent))
+            {
+                _dirs.Add(parent);
+                if (parent == "/") break;
+                parent = VirtualPathHelper.GetParentPath(parent);
+            }
+        }
+
+        public Task<int> ReadFileRangeAsync(
+            string virtualPath,
+            byte[] buffer,
+            int bufferOffset,
+            long fileOffset,
+            int count,
+            CancellationToken cancellationToken = default)
+        {
+            RangeReadCount++;
+            var norm = VirtualPathHelper.NormalizeVirtualPath(virtualPath);
+            if (_virtualFileSizes.TryGetValue(norm, out var virtSize))
+            {
+                if (fileOffset >= (long)virtSize) return Task.FromResult(0);
+                int available = (int)Math.Min((ulong)count, virtSize - (ulong)fileOffset);
+                for (int i = 0; i < available; i++)
+                    buffer[bufferOffset + i] = (byte)((fileOffset + i) % 256);
+                return Task.FromResult(available);
+            }
+            if (_files.TryGetValue(norm, out var entry))
+            {
+                if (fileOffset >= entry.Data.Length) return Task.FromResult(0);
+                int available = Math.Min(count, entry.Data.Length - (int)fileOffset);
+                Array.Copy(entry.Data, (int)fileOffset, buffer, bufferOffset, available);
+                return Task.FromResult(available);
+            }
+            return Task.FromResult(0);
+        }
 
         public Task<string?> LockFileAsync(string virtualPath, int timeoutSeconds = 3600, CancellationToken cancellationToken = default)
         {
@@ -633,6 +729,8 @@ public class CloudDriveMountTests
             var now = DateTime.UtcNow;
             if (_dirs.Contains(norm))
                 return Task.FromResult<CloudItemInfo?>(new CloudItemInfo(VirtualPathHelper.GetFileName(norm), norm, true, 0, now, now, now));
+            if (_virtualFileSizes.TryGetValue(norm, out var virtSize))
+                return Task.FromResult<CloudItemInfo?>(new CloudItemInfo(VirtualPathHelper.GetFileName(norm), norm, false, virtSize, now, now, now));
             if (_files.TryGetValue(norm, out var entry))
                 return Task.FromResult<CloudItemInfo?>(new CloudItemInfo(VirtualPathHelper.GetFileName(norm), norm, false, (ulong)entry.Data.Length, entry.ModUtc, entry.ModUtc, entry.ModUtc));
             return Task.FromResult<CloudItemInfo?>(null);

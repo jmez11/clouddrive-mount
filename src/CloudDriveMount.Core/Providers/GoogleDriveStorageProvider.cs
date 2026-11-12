@@ -373,6 +373,59 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
         await resp.Content.CopyToAsync(destination, cancellationToken);
     }
 
+    public async Task<int> ReadFileRangeAsync(
+        string virtualPath,
+        byte[] buffer,
+        int bufferOffset,
+        long fileOffset,
+        int count,
+        CancellationToken cancellationToken = default)
+    {
+        var norm = VirtualPathHelper.NormalizeVirtualPath(virtualPath);
+
+        // If this is a Google Docs/Sheets/Slides/Link (.url), serve from the shortcut bytes
+        if (_webShortcutContentCache.TryGetValue(norm, out var shortcutBytes))
+        {
+            if (fileOffset >= shortcutBytes.Length) return 0;
+            int available = Math.Min(count, shortcutBytes.Length - (int)fileOffset);
+            Array.Copy(shortcutBytes, (int)fileOffset, buffer, bufferOffset, available);
+            return available;
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var item = await GetItemAsync(norm, cancellationToken)
+            ?? throw new FileNotFoundException($"Google Drive file not found: {norm}");
+
+        if (_webShortcutContentCache.TryGetValue(norm, out shortcutBytes))
+        {
+            if (fileOffset >= shortcutBytes.Length) return 0;
+            int available = Math.Min(count, shortcutBytes.Length - (int)fileOffset);
+            Array.Copy(shortcutBytes, (int)fileOffset, buffer, bufferOffset, available);
+            return available;
+        }
+
+        var url = $"{FilesEndpoint}/{Uri.EscapeDataString(item.NativeId!)}?alt=media";
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        long endOffset = fileOffset + count - 1;
+        req.Headers.Range = new RangeHeaderValue(fileOffset, endOffset);
+
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (resp.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+            return 0;
+
+        resp.EnsureSuccessStatusCode();
+
+        using var contentStream = await resp.Content.ReadAsStreamAsync(cancellationToken);
+        int totalRead = 0;
+        while (totalRead < count)
+        {
+            int read = await contentStream.ReadAsync(buffer.AsMemory(bufferOffset + totalRead, count - totalRead), cancellationToken);
+            if (read == 0) break;
+            totalRead += read;
+        }
+        return totalRead;
+    }
+
     public async Task UploadFileAsync(string virtualPath, Stream source, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);

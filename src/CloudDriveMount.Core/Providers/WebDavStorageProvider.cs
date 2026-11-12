@@ -256,6 +256,33 @@ public sealed class WebDavStorageProvider : ICloudStorageProvider
         await resp.Content.CopyToAsync(destination, cancellationToken);
     }
 
+    public async Task<int> ReadFileRangeAsync(
+        string virtualPath,
+        byte[] buffer,
+        int bufferOffset,
+        long fileOffset,
+        int count,
+        CancellationToken cancellationToken = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, BuildTargetUri(virtualPath));
+        req.Headers.Range = new RangeHeaderValue(fileOffset, fileOffset + count - 1);
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (resp.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+            return 0;
+
+        resp.EnsureSuccessStatusCode();
+
+        using var s = await resp.Content.ReadAsStreamAsync(cancellationToken);
+        int totalRead = 0;
+        while (totalRead < count)
+        {
+            int read = await s.ReadAsync(buffer.AsMemory(bufferOffset + totalRead, count - totalRead), cancellationToken);
+            if (read == 0) break;
+            totalRead += read;
+        }
+        return totalRead;
+    }
+
     public async Task UploadFileAsync(string virtualPath, Stream source, CancellationToken cancellationToken = default)
     {
         var norm = VirtualPathHelper.NormalizeVirtualPath(virtualPath);

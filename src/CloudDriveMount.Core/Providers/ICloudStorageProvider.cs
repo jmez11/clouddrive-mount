@@ -33,6 +33,20 @@ public interface ICloudStorageProvider : IDisposable
     Task DeleteDirectoryAsync(string virtualDirectoryPath, CancellationToken cancellationToken = default);
     Task RenameAsync(string oldVirtualPath, string newVirtualPath, bool overwrite, CancellationToken cancellationToken = default);
 
+    Task<int> ReadFileRangeAsync(
+        string virtualPath,
+        byte[] buffer,
+        int bufferOffset,
+        long fileOffset,
+        int count,
+        CancellationToken cancellationToken = default)
+    {
+        using var ms = new MemoryStream();
+        DownloadFileAsync(virtualPath, ms, cancellationToken).GetAwaiter().GetResult();
+        ms.Position = Math.Min((long)ms.Length, fileOffset);
+        return Task.FromResult(ms.Read(buffer, bufferOffset, count));
+    }
+
     Task<string?> LockFileAsync(string virtualPath, int timeoutSeconds = 3600, CancellationToken cancellationToken = default)
         => Task.FromResult<string?>(null);
 

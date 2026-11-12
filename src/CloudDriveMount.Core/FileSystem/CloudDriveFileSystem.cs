@@ -42,6 +42,12 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, RetainedCacheEntry> _retainedCache =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (long TickCount, byte[] Data)> _chunkCache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _chunkFetchLocks =
+        new(StringComparer.OrdinalIgnoreCase);
+    private const int ChunkSize = 1024 * 1024; // 1 MB streaming chunks
+    private const int MaxCachedChunks = 64;    // 64 MB maximum in-memory cache
 
     private CloudVolumeQuota _cachedQuota = CloudVolumeQuota.DefaultUnbounded;
     private DateTime _quotaFetchedUtc = DateTime.MinValue;
@@ -357,6 +363,110 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         _dirCache.TryRemove(norm, out _);
         var parent = VirtualPathHelper.GetParentPath(norm);
         _dirCache.TryRemove(parent, out _);
+        InvalidateChunkCache(norm);
+    }
+
+    private byte[] GetOrCreateChunk(string virtualPath, long chunkIndex, ulong fileSize)
+    {
+        string key = $"{virtualPath}:{chunkIndex}";
+        if (_chunkCache.TryGetValue(key, out var cached))
+        {
+            _chunkCache[key] = (Environment.TickCount64, cached.Data);
+            return cached.Data;
+        }
+
+        var sem = _chunkFetchLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+        sem.Wait();
+        try
+        {
+            if (_chunkCache.TryGetValue(key, out cached))
+            {
+                _chunkCache[key] = (Environment.TickCount64, cached.Data);
+                return cached.Data;
+            }
+
+            long chunkStart = chunkIndex * ChunkSize;
+            if (chunkStart >= (long)fileSize)
+                return Array.Empty<byte>();
+
+            int toFetch = (int)Math.Min(ChunkSize, (long)fileSize - chunkStart);
+            byte[] chunkData = new byte[toFetch];
+
+            int read = _provider.ReadFileRangeAsync(virtualPath, chunkData, 0, chunkStart, toFetch).GetAwaiter().GetResult();
+            if (read < toFetch)
+            {
+                Array.Resize(ref chunkData, Math.Max(0, read));
+            }
+
+            _chunkCache[key] = (Environment.TickCount64, chunkData);
+            TrimChunkCacheIfNeeded();
+            return chunkData;
+        }
+        finally
+        {
+            sem.Release();
+        }
+    }
+
+    private int ReadViaChunkCache(string virtualPath, long offset, byte[] destination, int destinationOffset, int count, ulong fileSize)
+    {
+        int totalRead = 0;
+        while (totalRead < count)
+        {
+            long currentOffset = offset + totalRead;
+            if (currentOffset >= (long)fileSize)
+                break;
+
+            long chunkIndex = currentOffset / ChunkSize;
+            int chunkOffset = (int)(currentOffset % ChunkSize);
+            byte[] chunk = GetOrCreateChunk(virtualPath, chunkIndex, fileSize);
+            if (chunk.Length <= chunkOffset)
+                break;
+
+            int availableInChunk = chunk.Length - chunkOffset;
+            int bytesToCopy = Math.Min(count - totalRead, availableInChunk);
+            if (bytesToCopy <= 0)
+                break;
+
+            Buffer.BlockCopy(chunk, chunkOffset, destination, destinationOffset + totalRead, bytesToCopy);
+            totalRead += bytesToCopy;
+        }
+        return totalRead;
+    }
+
+    private void TrimChunkCacheIfNeeded()
+    {
+        if (_chunkCache.Count <= MaxCachedChunks)
+            return;
+
+        var toEvict = _chunkCache
+            .OrderBy(kvp => kvp.Value.TickCount)
+            .Take(_chunkCache.Count - MaxCachedChunks + 8)
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        foreach (var k in toEvict)
+        {
+            _chunkCache.TryRemove(k, out _);
+            if (_chunkFetchLocks.TryRemove(k, out var sem))
+            {
+                sem.Dispose();
+            }
+        }
+    }
+
+    private void InvalidateChunkCache(string virtualPath)
+    {
+        var prefix = virtualPath + ":";
+        var keys = _chunkCache.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+        foreach (var key in keys)
+        {
+            _chunkCache.TryRemove(key, out _);
+            if (_chunkFetchLocks.TryRemove(key, out var sem))
+            {
+                sem.Dispose();
+            }
+        }
     }
 
     public override int ExceptionHandler(Exception ex)
@@ -672,24 +782,70 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         if (ctx.IsDirectory)
             return STATUS_INVALID_DEVICE_REQUEST;
 
-        lock (ctx)
+        if (ctx.KnownFileSize == 0 || Offset >= ctx.KnownFileSize)
+            return STATUS_END_OF_FILE;
+
+        var toRead = (int)Math.Min((ulong)Length, ctx.KnownFileSize - Offset);
+        if (toRead <= 0)
+            return STATUS_END_OF_FILE;
+
+        // Case 1: Active uncommitted local write staging stream
+        if (ctx.IsDirty && ctx.StagingStream != null)
         {
-            EnsureStagingStreamMaterialized(ctx, populateExistingContent: true);
-            if (ctx.StagingStream == null)
-                return STATUS_INVALID_DEVICE_REQUEST;
+            lock (ctx)
+            {
+                if (Offset >= (ulong)ctx.StagingStream.Length)
+                    return STATUS_END_OF_FILE;
 
-            if (Offset >= (ulong)ctx.StagingStream.Length)
-                return STATUS_END_OF_FILE;
-
-            var toRead = (int)Math.Min(Length, (ulong)ctx.StagingStream.Length - Offset);
-            var temp = new byte[toRead];
-            ctx.StagingStream.Seek((long)Offset, SeekOrigin.Begin);
-            var read = ctx.StagingStream.Read(temp, 0, toRead);
-            if (read > 0)
-                Marshal.Copy(temp, 0, Buffer, read);
-            PBytesTransferred = (uint)read;
+                var avail = (int)Math.Min((ulong)toRead, (ulong)ctx.StagingStream.Length - Offset);
+                var temp = new byte[avail];
+                ctx.StagingStream.Seek((long)Offset, SeekOrigin.Begin);
+                var read = ctx.StagingStream.Read(temp, 0, avail);
+                if (read > 0)
+                    Marshal.Copy(temp, 0, Buffer, read);
+                PBytesTransferred = (uint)read;
+                return STATUS_SUCCESS;
+            }
         }
-        return STATUS_SUCCESS;
+
+        // Case 2: Present in full retained disk cache
+        if (_retainedCache.TryGetValue(ctx.VirtualPath, out var cacheEntry) &&
+            cacheEntry.FileSize == ctx.KnownFileSize &&
+            cacheEntry.LastWriteTimeFileTime == ctx.LastWriteTimeFileTime &&
+            File.Exists(cacheEntry.LocalCacheFilePath))
+        {
+            try
+            {
+                using var fs = new FileStream(cacheEntry.LocalCacheFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                fs.Seek((long)Offset, SeekOrigin.Begin);
+                var temp = new byte[toRead];
+                var read = fs.Read(temp, 0, toRead);
+                if (read > 0)
+                    Marshal.Copy(temp, 0, Buffer, read);
+                PBytesTransferred = (uint)read;
+                cacheEntry.LastAccessTickCount = Environment.TickCount64;
+                return STATUS_SUCCESS;
+            }
+            catch
+            {
+                // Fall through to on-demand chunked streaming
+            }
+        }
+
+        // Case 3: Fast on-demand chunk streaming (1 MB block cache) without full-file staging
+        try
+        {
+            var temp = new byte[toRead];
+            int totalRead = ReadViaChunkCache(ctx.VirtualPath, (long)Offset, temp, 0, toRead, ctx.KnownFileSize);
+            if (totalRead > 0)
+                Marshal.Copy(temp, 0, Buffer, totalRead);
+            PBytesTransferred = (uint)totalRead;
+            return STATUS_SUCCESS;
+        }
+        catch
+        {
+            return STATUS_DEVICE_DATA_ERROR;
+        }
     }
 
     public override int Write(

@@ -172,6 +172,40 @@ public sealed class SftpStorageProvider : ICloudStorageProvider
         }
     }
 
+    public async Task<int> ReadFileRangeAsync(
+        string virtualPath,
+        byte[] buffer,
+        int bufferOffset,
+        long fileOffset,
+        int count,
+        CancellationToken cancellationToken = default)
+    {
+        var remotePath = VirtualPathHelper.CombineRemotePath(_config.RemotePath, virtualPath);
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var client = await EnsureConnectedLockedAsync(cancellationToken);
+            return await Task.Run(() =>
+            {
+                using var stream = client.OpenRead(remotePath);
+                if (fileOffset > 0)
+                    stream.Seek(fileOffset, SeekOrigin.Begin);
+                int totalRead = 0;
+                while (totalRead < count)
+                {
+                    int read = stream.Read(buffer, bufferOffset + totalRead, count - totalRead);
+                    if (read == 0) break;
+                    totalRead += read;
+                }
+                return totalRead;
+            }, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task UploadFileAsync(string virtualPath, Stream source, CancellationToken cancellationToken = default)
     {
         var remotePath = VirtualPathHelper.CombineRemotePath(_config.RemotePath, virtualPath);

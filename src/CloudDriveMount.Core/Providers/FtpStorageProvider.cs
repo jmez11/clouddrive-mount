@@ -166,6 +166,35 @@ public sealed class FtpStorageProvider : ICloudStorageProvider
         }
     }
 
+    public async Task<int> ReadFileRangeAsync(
+        string virtualPath,
+        byte[] buffer,
+        int bufferOffset,
+        long fileOffset,
+        int count,
+        CancellationToken cancellationToken = default)
+    {
+        var remotePath = VirtualPathHelper.CombineRemotePath(_config.RemotePath, virtualPath);
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var client = await EnsureConnectedLockedAsync(cancellationToken);
+            using var stream = await client.OpenRead(remotePath, FtpDataType.Binary, fileOffset, token: cancellationToken);
+            int totalRead = 0;
+            while (totalRead < count)
+            {
+                int read = await stream.ReadAsync(buffer.AsMemory(bufferOffset + totalRead, count - totalRead), cancellationToken);
+                if (read == 0) break;
+                totalRead += read;
+            }
+            return totalRead;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task UploadFileAsync(string virtualPath, Stream source, CancellationToken cancellationToken = default)
     {
         var remotePath = VirtualPathHelper.CombineRemotePath(_config.RemotePath, virtualPath);
