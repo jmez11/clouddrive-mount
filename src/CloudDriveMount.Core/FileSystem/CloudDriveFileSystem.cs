@@ -50,8 +50,9 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
     private readonly CancellationTokenSource _fsDisposeCts = new();
     private const int ChunkSize = 1024 * 1024; // 1 MB streaming chunks
     private const int MaxCachedChunks = 128;   // 128 MB maximum in-memory streaming chunk cache
-    private static readonly TimeSpan DirCacheTtl = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan ItemCacheTtl = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan RevalidationInterval = TimeSpan.FromSeconds(30);
+    private readonly ConcurrentDictionary<string, Task> _inFlightDirRevalidations =
+        new(StringComparer.OrdinalIgnoreCase);
 
     private CloudVolumeQuota _cachedQuota = CloudVolumeQuota.DefaultUnbounded;
     private DateTime _quotaFetchedUtc = DateTime.MinValue;
@@ -158,6 +159,13 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         _retainedCacheDir = Path.Combine(_cacheDir, "retained");
         Directory.CreateDirectory(_stagingDir);
         Directory.CreateDirectory(_retainedCacheDir);
+
+        _provider.RemotePathInvalidated += OnRemotePathInvalidated;
+    }
+
+    private void OnRemotePathInvalidated(string path)
+    {
+        InvalidatePathAndParent(path);
     }
 
     private static string ToVirtualPath(string winFspFileName)
@@ -351,6 +359,40 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         return false;
     }
 
+    private void TriggerBackgroundDirectoryRevalidation(string normDir)
+    {
+        if (_fsDisposeCts.IsCancellationRequested)
+            return;
+
+        if (_inFlightDirRevalidations.ContainsKey(normDir))
+            return;
+
+        var task = Task.Run(async () =>
+        {
+            try
+            {
+                var rawItems = await _provider.ListDirectoryAsync(normDir, _fsDisposeCts.Token).ConfigureAwait(false);
+                var items = rawItems.Where(i => !IsWindowsSystemArtifactPath(i.Name) && !IsWindowsSystemArtifactPath(i.FullPath)).ToList();
+                var now = DateTime.UtcNow;
+                _dirCache[normDir] = (now, items);
+                foreach (var item in items)
+                {
+                    _itemCache[item.FullPath] = (now, item);
+                }
+            }
+            catch
+            {
+                // Silently keep existing cache on background revalidation network glitches
+            }
+            finally
+            {
+                _inFlightDirRevalidations.TryRemove(normDir, out _);
+            }
+        });
+
+        _inFlightDirRevalidations.TryAdd(normDir, task);
+    }
+
     private CloudItemInfo? GetCachedOrFetchItem(string virtualPath)
     {
         if (IsWindowsSystemArtifactPath(virtualPath))
@@ -363,19 +405,28 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
             return new CloudItemInfo("", "/", true, 0, now, now, now);
         }
 
-        if (_itemCache.TryGetValue(norm, out var cached) &&
-            (DateTime.UtcNow - cached.FetchedUtc) < ItemCacheTtl)
+        var nowUtc = DateTime.UtcNow;
+
+        if (_itemCache.TryGetValue(norm, out var cached))
         {
+            if ((nowUtc - cached.FetchedUtc) > RevalidationInterval)
+            {
+                var parentDir = VirtualPathHelper.GetParentPath(norm);
+                TriggerBackgroundDirectoryRevalidation(parentDir);
+            }
             return cached.Item;
         }
 
         var parent = VirtualPathHelper.GetParentPath(norm);
-        if (_dirCache.TryGetValue(parent, out var dirCached) &&
-            (DateTime.UtcNow - dirCached.FetchedUtc) < DirCacheTtl)
+        if (_dirCache.TryGetValue(parent, out var dirCached))
         {
             var fileName = VirtualPathHelper.GetFileName(norm);
             var match = dirCached.Items.FirstOrDefault(i => string.Equals(i.Name, fileName, StringComparison.OrdinalIgnoreCase));
-            _itemCache[norm] = (DateTime.UtcNow, match);
+            _itemCache[norm] = (nowUtc, match);
+            if ((nowUtc - dirCached.FetchedUtc) > RevalidationInterval)
+            {
+                TriggerBackgroundDirectoryRevalidation(parent);
+            }
             return match;
         }
 
@@ -390,15 +441,23 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         if (IsWindowsSystemArtifactPath(norm))
             return Array.Empty<CloudItemInfo>();
 
-        if (_dirCache.TryGetValue(norm, out var cached) &&
-            (DateTime.UtcNow - cached.FetchedUtc) < DirCacheTtl)
+        var now = DateTime.UtcNow;
+
+        if (_dirCache.TryGetValue(norm, out var cached))
         {
+            // If the cache entry is older than RevalidationInterval, trigger non-blocking background revalidation
+            if ((now - cached.FetchedUtc) > RevalidationInterval)
+            {
+                TriggerBackgroundDirectoryRevalidation(norm);
+            }
+
+            // Immediately return cached items with 0ms delay to keep Explorer lightning fast
             return cached.Items;
         }
 
         var rawItems = _provider.ListDirectoryAsync(norm).GetAwaiter().GetResult();
         var items = rawItems.Where(i => !IsWindowsSystemArtifactPath(i.Name) && !IsWindowsSystemArtifactPath(i.FullPath)).ToList();
-        var now = DateTime.UtcNow;
+        now = DateTime.UtcNow;
         _dirCache[norm] = (now, items);
         foreach (var item in items)
         {
@@ -1463,6 +1522,12 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
 
     public void Dispose()
     {
+        try
+        {
+            _provider.RemotePathInvalidated -= OnRemotePathInvalidated;
+        }
+        catch { }
+
         try
         {
             _fsDisposeCts.Cancel();

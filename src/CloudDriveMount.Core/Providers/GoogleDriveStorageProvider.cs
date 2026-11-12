@@ -19,13 +19,20 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
     private const string UploadEndpoint = "https://www.googleapis.com/upload/drive/v3/files";
     private const string AboutEndpoint = "https://www.googleapis.com/drive/v3/about?fields=storageQuota";
     private const string TokenEndpoint = "https://oauth2.googleapis.com/token";
+    private const string ChangesStartPageTokenEndpoint = "https://www.googleapis.com/drive/v3/changes/startPageToken?supportsAllDrives=true";
+    private const string ChangesEndpoint = "https://www.googleapis.com/drive/v3/changes";
+
+    public event Action<string>? RemotePathInvalidated;
 
     private readonly DriveConfig _config;
     private readonly HttpClient _http;
     private readonly ConcurrentDictionary<string, string> _pathToIdCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte[]> _webShortcutContentCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly CancellationTokenSource _providerCts = new();
     private string _accessToken = string.Empty;
     private DateTime _tokenExpiryUtc = DateTime.MinValue;
+    private string? _changesPageToken;
+    private Task? _changesPollingTask;
 
     public GoogleDriveStorageProvider(DriveConfig config, HttpMessageHandler? customHandler = null)
     {
@@ -240,6 +247,7 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
         await EnsureAuthenticatedAsync(cancellationToken);
         _pathToIdCache["/"] = RootFolderId;
         await GetQuotaAsync(cancellationToken);
+        await InitChangesTrackingAsync(cancellationToken);
     }
 
     public async Task<CloudVolumeQuota> GetQuotaAsync(CancellationToken cancellationToken = default)
@@ -721,10 +729,134 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
             _webShortcutContentCache[normNew] = shortcutBytes;
     }
 
+    private async Task InitChangesTrackingAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var resp = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Get, ChangesStartPageTokenEndpoint), cancellationToken);
+            if (resp.IsSuccessStatusCode)
+            {
+                var json = await resp.Content.ReadAsStringAsync(cancellationToken);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("startPageToken", out var tokenElem))
+                {
+                    _changesPageToken = tokenElem.GetString();
+                }
+            }
+        }
+        catch
+        {
+            // Changes tracking falls back gracefully to SWR if startPageToken query fails
+        }
+
+        if (!string.IsNullOrEmpty(_changesPageToken) && _changesPollingTask == null)
+        {
+            _changesPollingTask = Task.Run(ChangesPollingLoopAsync);
+        }
+    }
+
+    private async Task ChangesPollingLoopAsync()
+    {
+        var ct = _providerCts.Token;
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(20), ct).ConfigureAwait(false);
+                if (ct.IsCancellationRequested || string.IsNullOrEmpty(_changesPageToken))
+                    break;
+
+                await PollChangesAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch
+            {
+                // Silently ignore transient network or polling errors, retry next tick
+            }
+        }
+    }
+
+    public async Task PollChangesAsync(CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(_changesPageToken))
+            return;
+
+        string? currentToken = _changesPageToken;
+        while (!string.IsNullOrEmpty(currentToken) && !cancellationToken.IsCancellationRequested)
+        {
+            var url = $"{ChangesEndpoint}?pageToken={Uri.EscapeDataString(currentToken)}&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=1000&fields=nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,parents,trashed))";
+
+            using var resp = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Get, url), cancellationToken);
+            if (!resp.IsSuccessStatusCode)
+                break;
+
+            var json = await resp.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(json);
+
+            if (doc.RootElement.TryGetProperty("changes", out var changesElem))
+            {
+                foreach (var ch in changesElem.EnumerateArray())
+                {
+                    var fileId = ch.TryGetProperty("fileId", out var fid) ? fid.GetString() : null;
+                    if (string.IsNullOrEmpty(fileId))
+                        continue;
+
+                    var parents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    if (ch.TryGetProperty("file", out var fileElem) &&
+                        fileElem.TryGetProperty("parents", out var parentsElem))
+                    {
+                        foreach (var p in parentsElem.EnumerateArray())
+                        {
+                            var ps = p.GetString();
+                            if (!string.IsNullOrEmpty(ps))
+                                parents.Add(ps);
+                        }
+                    }
+
+                    // Find any cached virtual paths matching this file ID or its parents
+                    var matchingPaths = _pathToIdCache
+                        .Where(kvp => string.Equals(kvp.Value, fileId, StringComparison.OrdinalIgnoreCase) || parents.Contains(kvp.Value))
+                        .Select(kvp => kvp.Key)
+                        .ToList();
+
+                    foreach (var path in matchingPaths)
+                    {
+                        _pathToIdCache.TryRemove(path, out _);
+                        RemotePathInvalidated?.Invoke(path);
+                    }
+                }
+            }
+
+            if (doc.RootElement.TryGetProperty("newStartPageToken", out var newStartElem) &&
+                !string.IsNullOrWhiteSpace(newStartElem.GetString()))
+            {
+                _changesPageToken = newStartElem.GetString();
+                break;
+            }
+
+            currentToken = doc.RootElement.TryGetProperty("nextPageToken", out var nextElem)
+                ? nextElem.GetString()
+                : null;
+            if (!string.IsNullOrEmpty(currentToken))
+            {
+                _changesPageToken = currentToken;
+            }
+        }
+    }
+
     private static string EscapeQueryLiteral(string value) => value.Replace("\\", "\\\\").Replace("'", "\\'");
 
     public void Dispose()
     {
+        try
+        {
+            _providerCts.Cancel();
+            _providerCts.Dispose();
+        }
+        catch { }
         _http.Dispose();
     }
 }

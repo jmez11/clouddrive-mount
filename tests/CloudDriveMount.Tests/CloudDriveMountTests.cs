@@ -841,7 +841,11 @@ public class CloudDriveMountTests
 
         public int DownloadCount { get; private set; }
         public int RangeReadCount { get; private set; }
+        public int ListDirectoryCount { get; private set; }
         public bool SimulateRemoteLockConflict { get; set; }
+        public event Action<string>? RemotePathInvalidated;
+
+        public void TriggerRemoteInvalidation(string path) => RemotePathInvalidated?.Invoke(path);
 
         public void SeedVirtualFile(string virtualPath, ulong size)
         {
@@ -910,6 +914,7 @@ public class CloudDriveMountTests
 
         public Task<IReadOnlyList<CloudItemInfo>> ListDirectoryAsync(string virtualDirectoryPath, CancellationToken cancellationToken = default)
         {
+            ListDirectoryCount++;
             var normDir = VirtualPathHelper.NormalizeVirtualPath(virtualDirectoryPath);
             var now = DateTime.UtcNow;
             var list = new List<CloudItemInfo>();
@@ -1038,5 +1043,46 @@ public class CloudDriveMountTests
             Assert.False(item.Name.EndsWith('.'));
             Assert.False(item.Name.EndsWith(' '));
         }
+    }
+
+    [Fact]
+    public async Task CloudDriveFileSystem_StaleWhileRevalidate_ServesFromMemoryAndInvalidatesOnRemoteEvent()
+    {
+        var provider = new InMemoryCloudStorageProvider();
+        await provider.CreateDirectoryAsync("/docs");
+        await provider.UploadFileAsync("/docs/report.txt", new MemoryStream("hello"u8.ToArray()));
+        var cfg = new DriveConfig { Protocol = StorageProtocol.GoogleDrive, DriveLetter = "Z:" };
+
+        using var fs = new CloudDriveFileSystem(cfg, provider);
+        Assert.Equal(0, fs.Open("/docs", 1, 0, out _, out var dirHandle, out _, out _));
+
+        // Read entries on /docs
+        object ctx = null!;
+        Assert.True(fs.ReadDirectoryEntry(null!, dirHandle, "*", null!, ref ctx, out var fileName1, out _));
+        Assert.Equal(1, provider.ListDirectoryCount);
+
+        // Immediate second read on /docs - must hit memory cache with 0 additional network calls
+        ctx = null!;
+        Assert.True(fs.ReadDirectoryEntry(null!, dirHandle, "*", null!, ref ctx, out var fileName2, out _));
+        Assert.Equal(1, provider.ListDirectoryCount);
+
+        // Close and reopen handle to /docs
+        fs.Close(null!, dirHandle);
+        Assert.Equal(0, fs.Open("/docs", 1, 0, out _, out dirHandle, out _, out _));
+        ctx = null!;
+        Assert.True(fs.ReadDirectoryEntry(null!, dirHandle, "*", null!, ref ctx, out _, out _));
+        Assert.Equal(1, provider.ListDirectoryCount); // Still cached in memory!
+
+        // Remote invalidation event arrives from background operation
+        provider.TriggerRemoteInvalidation("/docs");
+
+        // Next open & read must detect invalidation and fetch fresh from provider
+        fs.Close(null!, dirHandle);
+        Assert.Equal(0, fs.Open("/docs", 1, 0, out _, out dirHandle, out _, out _));
+        ctx = null!;
+        Assert.True(fs.ReadDirectoryEntry(null!, dirHandle, "*", null!, ref ctx, out _, out _));
+        Assert.Equal(2, provider.ListDirectoryCount); // Re-fetched because background operation marked it out of date!
+
+        fs.Close(null!, dirHandle);
     }
 }

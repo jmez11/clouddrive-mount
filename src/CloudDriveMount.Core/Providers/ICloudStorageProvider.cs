@@ -22,6 +22,12 @@ public sealed record CloudVolumeQuota(
 
 public interface ICloudStorageProvider : IDisposable
 {
+    event Action<string>? RemotePathInvalidated
+    {
+        add { }
+        remove { }
+    }
+
     Task ConnectAsync(CancellationToken cancellationToken = default);
     Task<CloudVolumeQuota> GetQuotaAsync(CancellationToken cancellationToken = default);
     Task<CloudItemInfo?> GetItemAsync(string virtualPath, CancellationToken cancellationToken = default);
