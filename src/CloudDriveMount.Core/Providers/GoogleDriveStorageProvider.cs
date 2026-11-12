@@ -233,7 +233,10 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
         var parentPath = VirtualPathHelper.GetParentPath(norm);
         var name = VirtualPathHelper.GetFileName(norm);
         var children = await ListDirectoryAsync(parentPath, cancellationToken);
-        return children.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+        var matches = children.Where(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (matches.Count == 0) return null;
+        if (matches.Count == 1) return matches[0];
+        return matches.OrderByDescending(c => c.Size).ThenByDescending(c => c.LastWriteTimeUtc).First();
     }
 
     private async Task<string?> ResolveFolderIdAsync(string virtualPath, CancellationToken cancellationToken)
@@ -338,11 +341,21 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
                 : created;
 
             var childVirt = normDir == "/" ? $"/{name}" : $"{normDir}/{name}";
-            _pathToIdCache[childVirt] = id;
             results.Add(new CloudItemInfo(name, childVirt, isDir, size, created, modified, modified, id));
         }
 
-        return results;
+        // Deduplicate identical file names in Google Drive (prioritizing non-zero size, larger size, then newest)
+        var deduplicated = new List<CloudItemInfo>();
+        var groupedByName = results.GroupBy(r => r.Name, StringComparer.OrdinalIgnoreCase);
+        foreach (var group in groupedByName)
+        {
+            var best = group.OrderByDescending(r => r.Size).ThenByDescending(r => r.LastWriteTimeUtc).First();
+            deduplicated.Add(best);
+            if (!string.IsNullOrEmpty(best.NativeId))
+                _pathToIdCache[best.FullPath] = best.NativeId;
+        }
+
+        return deduplicated;
     }
 
     public async Task DownloadFileAsync(string virtualPath, Stream destination, CancellationToken cancellationToken = default)
@@ -367,7 +380,7 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
             return;
         }
 
-        var url = $"{FilesEndpoint}/{Uri.EscapeDataString(item.NativeId!)}?alt=media";
+        var url = $"{FilesEndpoint}/{Uri.EscapeDataString(item.NativeId!)}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true";
         using var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         resp.EnsureSuccessStatusCode();
         await resp.Content.CopyToAsync(destination, cancellationToken);
@@ -404,7 +417,7 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
             return available;
         }
 
-        var url = $"{FilesEndpoint}/{Uri.EscapeDataString(item.NativeId!)}?alt=media";
+        var url = $"{FilesEndpoint}/{Uri.EscapeDataString(item.NativeId!)}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true";
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         long endOffset = fileOffset + count - 1;
         req.Headers.Range = new RangeHeaderValue(fileOffset, endOffset);

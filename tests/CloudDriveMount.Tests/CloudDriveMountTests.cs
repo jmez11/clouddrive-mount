@@ -409,6 +409,56 @@ public class CloudDriveMountTests
     }
 
     [Fact]
+    public async Task GoogleDriveStorageProvider_DeduplicatesSameNameFiles_PrefersNonZeroContent()
+    {
+        const string sampleGDriveJson = """
+            {
+              "files": [
+                {
+                  "id": "ghost_file_id",
+                  "name": "The Daily Show - S31E116.mkv",
+                  "mimeType": "video/x-matroska",
+                  "size": "0",
+                  "createdTime": "2026-10-21T11:07:17Z",
+                  "modifiedTime": "2026-10-21T11:07:17Z"
+                },
+                {
+                  "id": "real_video_id",
+                  "name": "The Daily Show - S31E116.mkv",
+                  "mimeType": "video/x-matroska",
+                  "size": "2243662990",
+                  "createdTime": "2026-10-21T09:08:34Z",
+                  "modifiedTime": "2026-10-21T09:08:34Z"
+                }
+              ]
+            }
+            """;
+
+        var handler = new MockHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(sampleGDriveJson, Encoding.UTF8, "application/json")
+        });
+
+        var cfg = new DriveConfig
+        {
+            Protocol = StorageProtocol.GoogleDrive,
+            EncryptedGoogleAccessToken = CredentialProtector.Protect("mock_access_token")
+        };
+
+        using var provider = new GoogleDriveStorageProvider(cfg, handler);
+        var items = await provider.ListDirectoryAsync("/");
+        Assert.Single(items);
+        Assert.Equal("The Daily Show - S31E116.mkv", items[0].Name);
+        Assert.Equal("real_video_id", items[0].NativeId);
+        Assert.Equal(2243662990UL, items[0].Size);
+
+        var item = await provider.GetItemAsync("/The Daily Show - S31E116.mkv");
+        Assert.NotNull(item);
+        Assert.Equal("real_video_id", item.NativeId);
+        Assert.Equal(2243662990UL, item.Size);
+    }
+
+    [Fact]
     public void CloudDriveFileSystem_PerformsFullReadWriteDeleteRenameAndPublicAcl()
     {
         var cfg = new DriveConfig
