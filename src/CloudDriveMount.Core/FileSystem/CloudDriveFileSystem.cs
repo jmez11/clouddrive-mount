@@ -307,8 +307,39 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         }
     }
 
+    public static bool IsWindowsSystemArtifactPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        var norm = VirtualPathHelper.NormalizeVirtualPath(path);
+        var segments = norm.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0)
+            return false;
+
+        var first = segments[0];
+        if (first.Equals("$RECYCLE.BIN", StringComparison.OrdinalIgnoreCase) ||
+            first.Equals("System Volume Information", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var last = segments[^1];
+        if (last.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase) ||
+            last.Equals("Thumbs.db", StringComparison.OrdinalIgnoreCase) ||
+            last.Equals("ehthumbs.db", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
     private CloudItemInfo? GetCachedOrFetchItem(string virtualPath)
     {
+        if (IsWindowsSystemArtifactPath(virtualPath))
+            return null;
+
         var norm = VirtualPathHelper.NormalizeVirtualPath(virtualPath);
         if (norm == "/")
         {
@@ -340,13 +371,17 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
     private IReadOnlyList<CloudItemInfo> GetCachedOrFetchDirectory(string virtualDirPath)
     {
         var norm = VirtualPathHelper.NormalizeVirtualPath(virtualDirPath);
+        if (IsWindowsSystemArtifactPath(norm))
+            return Array.Empty<CloudItemInfo>();
+
         if (_dirCache.TryGetValue(norm, out var cached) &&
             (DateTime.UtcNow - cached.FetchedUtc) < TimeSpan.FromSeconds(5))
         {
             return cached.Items;
         }
 
-        var items = _provider.ListDirectoryAsync(norm).GetAwaiter().GetResult();
+        var rawItems = _provider.ListDirectoryAsync(norm).GetAwaiter().GetResult();
+        var items = rawItems.Where(i => !IsWindowsSystemArtifactPath(i.Name) && !IsWindowsSystemArtifactPath(i.FullPath)).ToList();
         var now = DateTime.UtcNow;
         _dirCache[norm] = (now, items);
         foreach (var item in items)
@@ -544,6 +579,12 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         out uint FileAttributes,
         ref byte[] SecurityDescriptor)
     {
+        if (IsWindowsSystemArtifactPath(FileName))
+        {
+            FileAttributes = 0;
+            return STATUS_OBJECT_NAME_NOT_FOUND;
+        }
+
         var vpath = ToVirtualPath(FileName);
         var item = GetCachedOrFetchItem(vpath);
         if (item == null)
@@ -587,6 +628,9 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
 
         if (_config.ReadOnly)
             return STATUS_MEDIA_WRITE_PROTECTED;
+
+        if (IsWindowsSystemArtifactPath(FileName))
+            return STATUS_ACCESS_DENIED;
 
         var vpath = ToVirtualPath(FileName);
         if (GetCachedOrFetchItem(vpath) != null)
@@ -671,6 +715,9 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         FileDesc = default!;
         FileInfo = default;
         NormalizedName = default!;
+
+        if (IsWindowsSystemArtifactPath(FileName))
+            return STATUS_OBJECT_NAME_NOT_FOUND;
 
         var vpath = ToVirtualPath(FileName);
         var item = GetCachedOrFetchItem(vpath);

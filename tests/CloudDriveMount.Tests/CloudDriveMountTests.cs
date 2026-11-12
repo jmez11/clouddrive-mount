@@ -638,6 +638,73 @@ public class CloudDriveMountTests
     }
 
     [Fact]
+    public async Task CloudDriveFileSystem_EliminatesWindowsSystemFoldersAndArtifacts()
+    {
+        // 1. Verify pattern recognition helper
+        Assert.True(CloudDriveFileSystem.IsWindowsSystemArtifactPath(@"\$RECYCLE.BIN"));
+        Assert.True(CloudDriveFileSystem.IsWindowsSystemArtifactPath(@"\$Recycle.Bin\S-1-5-21-1234"));
+        Assert.True(CloudDriveFileSystem.IsWindowsSystemArtifactPath(@"\System Volume Information"));
+        Assert.True(CloudDriveFileSystem.IsWindowsSystemArtifactPath(@"\System Volume Information\IndexerVolumeGuid"));
+        Assert.True(CloudDriveFileSystem.IsWindowsSystemArtifactPath(@"\desktop.ini"));
+        Assert.True(CloudDriveFileSystem.IsWindowsSystemArtifactPath(@"\TV\desktop.ini"));
+        Assert.True(CloudDriveFileSystem.IsWindowsSystemArtifactPath(@"\Thumbs.db"));
+        Assert.True(CloudDriveFileSystem.IsWindowsSystemArtifactPath(@"\Photos\Thumbs.db"));
+
+        // Legitimate files and folders must NOT be blocked
+        Assert.False(CloudDriveFileSystem.IsWindowsSystemArtifactPath(@"\TV"));
+        Assert.False(CloudDriveFileSystem.IsWindowsSystemArtifactPath(@"\recycle_notes.txt"));
+        Assert.False(CloudDriveFileSystem.IsWindowsSystemArtifactPath(@"\my_system_info.pdf"));
+
+        var cfg = new DriveConfig
+        {
+            Id = Guid.NewGuid(),
+            Protocol = StorageProtocol.GoogleDrive,
+            DriveLetter = "W",
+            Label = "Google Drive"
+        };
+
+        using var memProvider = new InMemoryCloudStorageProvider();
+        // Seed legitimate folder and existing Windows system folders on remote
+        await memProvider.CreateDirectoryAsync("/LegitimateFolder");
+        await memProvider.CreateDirectoryAsync("/$RECYCLE.BIN");
+        await memProvider.CreateDirectoryAsync("/System Volume Information");
+
+        using var fs = new CloudDriveFileSystem(cfg, memProvider);
+
+        // 2. Creating $RECYCLE.BIN, System Volume Information, or desktop.ini must be rejected with STATUS_ACCESS_DENIED
+        Assert.Equal(FileSystemBase.STATUS_ACCESS_DENIED,
+            fs.Create(@"\$RECYCLE.BIN", FileSystemBase.FILE_DIRECTORY_FILE, 0, 0, Array.Empty<byte>(), 0, out _, out _, out _, out _));
+        Assert.Equal(FileSystemBase.STATUS_ACCESS_DENIED,
+            fs.Create(@"\System Volume Information", FileSystemBase.FILE_DIRECTORY_FILE, 0, 0, Array.Empty<byte>(), 0, out _, out _, out _, out _));
+        Assert.Equal(FileSystemBase.STATUS_ACCESS_DENIED,
+            fs.Create(@"\desktop.ini", 0, 0, 0, Array.Empty<byte>(), 0, out _, out _, out _, out _));
+        Assert.Equal(FileSystemBase.STATUS_ACCESS_DENIED,
+            fs.Create(@"\Thumbs.db", 0, 0, 0, Array.Empty<byte>(), 0, out _, out _, out _, out _));
+
+        // 3. Opening or querying security for them must return STATUS_OBJECT_NAME_NOT_FOUND
+        Assert.Equal(FileSystemBase.STATUS_OBJECT_NAME_NOT_FOUND,
+            fs.Open(@"\$RECYCLE.BIN", 0, 0, out _, out _, out _, out _));
+        byte[] sd = Array.Empty<byte>();
+        Assert.Equal(FileSystemBase.STATUS_OBJECT_NAME_NOT_FOUND,
+            fs.GetSecurityByName(@"\$RECYCLE.BIN", out _, ref sd));
+
+        // 4. Directory enumeration must completely filter out $RECYCLE.BIN and System Volume Information
+        Assert.Equal(FileSystemBase.STATUS_SUCCESS,
+            fs.Open(@"\", 0, 0, out var rootNode, out var rootDesc, out _, out _));
+        object? ctx = null;
+        var enumerated = new List<string>();
+        while (fs.ReadDirectoryEntry(rootNode, rootDesc, "*", null!, ref ctx!, out string entryName, out _))
+        {
+            enumerated.Add(entryName);
+        }
+        fs.Close(rootNode, rootDesc);
+
+        Assert.Contains("LegitimateFolder", enumerated);
+        Assert.DoesNotContain("$RECYCLE.BIN", enumerated);
+        Assert.DoesNotContain("System Volume Information", enumerated);
+    }
+
+    [Fact]
     public void ExplorerIconManager_EnsuresAppNotificationIdentityAndStartMenuShortcut()
     {
         var dummyExe = typeof(ExplorerIconManager).Assembly.Location;
