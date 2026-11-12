@@ -27,7 +27,7 @@ Write-Host "Publishing CloudDriveMount ($Configuration / $Runtime)..." -Foregrou
     -r $Runtime `
     --self-contained true `
     -p:PublishSingleFile=true `
-    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:IncludeAllContentForSelfExtract=true `
     -p:EnableCompressionInSingleFile=true `
     -p:DebugType=none `
     -p:DebugSymbols=false `

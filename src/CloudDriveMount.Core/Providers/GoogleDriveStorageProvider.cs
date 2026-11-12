@@ -35,6 +35,55 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
         _accessToken = CredentialProtector.Unprotect(config.EncryptedGoogleAccessToken);
     }
 
+    private async Task<HttpResponseMessage> SendWithRetryAsync(
+        Func<HttpRequestMessage> requestFactory,
+        CancellationToken cancellationToken,
+        HttpCompletionOption completionOption = HttpCompletionOption.ResponseContentRead)
+    {
+        const int maxRetries = 4;
+        int delayMs = 500;
+
+        for (int attempt = 1; ; attempt++)
+        {
+            await EnsureAuthenticatedAsync(cancellationToken);
+            using var request = requestFactory();
+            var resp = await _http.SendAsync(request, completionOption, cancellationToken);
+
+            if (attempt >= maxRetries ||
+                ((int)resp.StatusCode != 429 && // Too Many Requests
+                 resp.StatusCode != HttpStatusCode.ServiceUnavailable &&
+                 resp.StatusCode != HttpStatusCode.GatewayTimeout &&
+                 resp.StatusCode != HttpStatusCode.InternalServerError))
+            {
+                return resp;
+            }
+
+            resp.Dispose();
+            var jitter = Random.Shared.Next(50, 200);
+            await Task.Delay(delayMs + jitter, cancellationToken);
+            delayMs = Math.Min(delayMs * 2, 4000);
+        }
+    }
+
+    public static string SanitizeFileNameForWindows(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return "_";
+        var sb = new StringBuilder(name.Length);
+        foreach (char c in name)
+        {
+            if (c < 32 || c == '<' || c == '>' || c == ':' || c == '"' || c == '/' || c == '\\' || c == '|' || c == '?' || c == '*')
+            {
+                sb.Append('_');
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+        var result = sb.ToString().TrimEnd(' ', '.');
+        return string.IsNullOrEmpty(result) ? "_" : result;
+    }
+
     private string RootFolderId => _config.GoogleScope switch
     {
         GoogleDriveScope.Folder when !string.IsNullOrWhiteSpace(_config.GoogleFolderId) => _config.GoogleFolderId.Trim(),
@@ -198,7 +247,7 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
         try
         {
             await EnsureAuthenticatedAsync(cancellationToken);
-            using var resp = await _http.GetAsync(AboutEndpoint, cancellationToken);
+            using var resp = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Get, AboutEndpoint), cancellationToken);
             if (!resp.IsSuccessStatusCode)
                 return CloudVolumeQuota.DefaultUnbounded;
 
@@ -276,83 +325,129 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
             query = $"'{EscapeQueryLiteral(folderId)}' in parents and trashed = false";
         }
 
-        var url = $"{FilesEndpoint}?q={Uri.EscapeDataString(query)}" +
-                  "&fields=files(id,name,mimeType,size,createdTime,modifiedTime,webViewLink,shortcutDetails)&pageSize=1000";
+        var rawList = new List<(string RawName, CloudItemInfo Item)>();
+        string? pageToken = null;
 
-        using var resp = await _http.GetAsync(url, cancellationToken);
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadAsStringAsync(cancellationToken);
-        using var doc = JsonDocument.Parse(json);
-
-        var results = new List<CloudItemInfo>();
-        if (!doc.RootElement.TryGetProperty("files", out var filesElem))
-            return results;
-
-        foreach (var f in filesElem.EnumerateArray())
+        do
         {
-            var id = f.GetProperty("id").GetString() ?? string.Empty;
-            var name = f.GetProperty("name").GetString() ?? string.Empty;
-            if (string.IsNullOrEmpty(name))
-                continue;
-
-            var mime = f.TryGetProperty("mimeType", out var mt) ? mt.GetString() ?? string.Empty : string.Empty;
-
-            // Handle Drive folder shortcuts by resolving to target folder ID
-            if (string.Equals(mime, ShortcutMimeType, StringComparison.OrdinalIgnoreCase) &&
-                f.TryGetProperty("shortcutDetails", out var sd) &&
-                sd.TryGetProperty("targetMimeType", out var tmt) &&
-                string.Equals(tmt.GetString(), FolderMimeType, StringComparison.OrdinalIgnoreCase) &&
-                sd.TryGetProperty("targetId", out var tid) &&
-                !string.IsNullOrWhiteSpace(tid.GetString()))
+            var url = $"{FilesEndpoint}?q={Uri.EscapeDataString(query)}" +
+                      "&fields=nextPageToken,files(id,name,mimeType,size,createdTime,modifiedTime,webViewLink,shortcutDetails)&pageSize=1000";
+            if (!string.IsNullOrEmpty(pageToken))
             {
-                id = tid.GetString()!;
-                mime = FolderMimeType;
+                url += $"&pageToken={Uri.EscapeDataString(pageToken)}";
             }
 
-            var isDir = string.Equals(mime, FolderMimeType, StringComparison.OrdinalIgnoreCase);
-            bool isGoogleWebDoc = !isDir && mime.StartsWith(GoogleAppsPrefix, StringComparison.OrdinalIgnoreCase);
+            using var resp = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Get, url), cancellationToken);
+            resp.EnsureSuccessStatusCode();
+            var json = await resp.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(json);
 
-            ulong size = 0;
-            if (isGoogleWebDoc)
+            if (doc.RootElement.TryGetProperty("files", out var filesElem))
             {
-                if (!name.EndsWith(".url", StringComparison.OrdinalIgnoreCase))
-                    name += ".url";
+                foreach (var f in filesElem.EnumerateArray())
+                {
+                    var id = f.GetProperty("id").GetString() ?? string.Empty;
+                    var rawName = f.GetProperty("name").GetString() ?? string.Empty;
+                    if (string.IsNullOrEmpty(rawName))
+                        continue;
 
-                var webLink = f.TryGetProperty("webViewLink", out var wvl) && !string.IsNullOrWhiteSpace(wvl.GetString())
-                    ? wvl.GetString()!
-                    : BuildFallbackGoogleAppsUrl(id, mime);
+                    var mime = f.TryGetProperty("mimeType", out var mt) ? mt.GetString() ?? string.Empty : string.Empty;
 
-                var shortcutBytes = BuildInternetShortcutBytes(webLink);
-                size = (ulong)shortcutBytes.Length;
+                    // Handle Drive folder shortcuts by resolving to target folder ID
+                    if (string.Equals(mime, ShortcutMimeType, StringComparison.OrdinalIgnoreCase) &&
+                        f.TryGetProperty("shortcutDetails", out var sd) &&
+                        sd.TryGetProperty("targetMimeType", out var tmt) &&
+                        string.Equals(tmt.GetString(), FolderMimeType, StringComparison.OrdinalIgnoreCase) &&
+                        sd.TryGetProperty("targetId", out var tid) &&
+                        !string.IsNullOrWhiteSpace(tid.GetString()))
+                    {
+                        id = tid.GetString()!;
+                        mime = FolderMimeType;
+                    }
 
-                var shortcutVirtPath = normDir == "/" ? $"/{name}" : $"{normDir}/{name}";
-                _webShortcutContentCache[shortcutVirtPath] = shortcutBytes;
+                    var isDir = string.Equals(mime, FolderMimeType, StringComparison.OrdinalIgnoreCase);
+                    bool isGoogleWebDoc = !isDir && mime.StartsWith(GoogleAppsPrefix, StringComparison.OrdinalIgnoreCase);
+
+                    ulong size = 0;
+                    if (isGoogleWebDoc)
+                    {
+                        if (!rawName.EndsWith(".url", StringComparison.OrdinalIgnoreCase))
+                            rawName += ".url";
+
+                        var webLink = f.TryGetProperty("webViewLink", out var wvl) && !string.IsNullOrWhiteSpace(wvl.GetString())
+                            ? wvl.GetString()!
+                            : BuildFallbackGoogleAppsUrl(id, mime);
+
+                        var shortcutBytes = BuildInternetShortcutBytes(webLink);
+                        size = (ulong)shortcutBytes.Length;
+                    }
+                    else if (!isDir && f.TryGetProperty("size", out var sz) && ulong.TryParse(sz.GetString(), out var parsedSize))
+                    {
+                        size = parsedSize;
+                    }
+
+                    var created = f.TryGetProperty("createdTime", out var ct) && DateTime.TryParse(ct.GetString(), out var cv)
+                        ? cv.ToUniversalTime()
+                        : DateTime.UtcNow;
+                    var modified = f.TryGetProperty("modifiedTime", out var mtime) && DateTime.TryParse(mtime.GetString(), out var mv)
+                        ? mv.ToUniversalTime()
+                        : created;
+
+                    var sanitizedName = SanitizeFileNameForWindows(rawName);
+                    var childVirt = normDir == "/" ? $"/{sanitizedName}" : $"{normDir}/{sanitizedName}";
+                    var item = new CloudItemInfo(sanitizedName, childVirt, isDir, size, created, modified, modified, id);
+
+                    if (isGoogleWebDoc)
+                    {
+                        var webLink = f.TryGetProperty("webViewLink", out var wvl) && !string.IsNullOrWhiteSpace(wvl.GetString())
+                            ? wvl.GetString()!
+                            : BuildFallbackGoogleAppsUrl(id, mime);
+                        _webShortcutContentCache[childVirt] = BuildInternetShortcutBytes(webLink);
+                    }
+
+                    rawList.Add((rawName, item));
+                }
             }
-            else if (!isDir && f.TryGetProperty("size", out var sz) && ulong.TryParse(sz.GetString(), out var parsedSize))
-            {
-                size = parsedSize;
-            }
 
-            var created = f.TryGetProperty("createdTime", out var ct) && DateTime.TryParse(ct.GetString(), out var cv)
-                ? cv.ToUniversalTime()
-                : DateTime.UtcNow;
-            var modified = f.TryGetProperty("modifiedTime", out var mtime) && DateTime.TryParse(mtime.GetString(), out var mv)
-                ? mv.ToUniversalTime()
-                : created;
-
-            var childVirt = normDir == "/" ? $"/{name}" : $"{normDir}/{name}";
-            results.Add(new CloudItemInfo(name, childVirt, isDir, size, created, modified, modified, id));
-        }
+            pageToken = doc.RootElement.TryGetProperty("nextPageToken", out var pt) ? pt.GetString() : null;
+        } while (!string.IsNullOrEmpty(pageToken));
 
         // Deduplicate identical file names in Google Drive (prioritizing non-zero size, larger size, then newest)
-        var deduplicated = new List<CloudItemInfo>();
-        var groupedByName = results.GroupBy(r => r.Name, StringComparer.OrdinalIgnoreCase);
-        foreach (var group in groupedByName)
+        var dedupedByRaw = new List<(string RawName, CloudItemInfo Item)>();
+        foreach (var group in rawList.GroupBy(r => r.RawName, StringComparer.OrdinalIgnoreCase))
         {
-            var best = group.OrderByDescending(r => r.Size).ThenByDescending(r => r.LastWriteTimeUtc).First();
-            deduplicated.Add(best);
-            if (!string.IsNullOrEmpty(best.NativeId))
-                _pathToIdCache[best.FullPath] = best.NativeId;
+            var best = group.OrderByDescending(r => r.Item.Size).ThenByDescending(r => r.Item.LastWriteTimeUtc).First();
+            dedupedByRaw.Add((group.Key, best.Item));
+        }
+
+        // Disambiguate if two different raw files ended up with the same sanitized name
+        var deduplicated = new List<CloudItemInfo>();
+        var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (rawName, item) in dedupedByRaw)
+        {
+            var baseName = item.Name;
+            var finalName = baseName;
+            int counter = 2;
+            var ext = Path.GetExtension(baseName);
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(baseName);
+
+            while (seenNames.Contains(finalName))
+            {
+                finalName = string.IsNullOrEmpty(ext)
+                    ? $"{nameWithoutExt} ({counter++})"
+                    : $"{nameWithoutExt} ({counter++}){ext}";
+            }
+
+            seenNames.Add(finalName);
+            var finalPath = normDir == "/" ? $"/{finalName}" : $"{normDir}/{finalName}";
+            var finalItem = (finalName == item.Name && finalPath == item.FullPath)
+                ? item
+                : new CloudItemInfo(finalName, finalPath, item.IsDirectory, item.Size, item.CreationTimeUtc, item.LastAccessTimeUtc, item.LastWriteTimeUtc, item.NativeId);
+
+            deduplicated.Add(finalItem);
+            if (!string.IsNullOrEmpty(finalItem.NativeId))
+                _pathToIdCache[finalItem.FullPath] = finalItem.NativeId;
         }
 
         return deduplicated;
@@ -370,8 +465,16 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
         }
 
         await EnsureAuthenticatedAsync(cancellationToken);
-        var item = await GetItemAsync(norm, cancellationToken)
-            ?? throw new FileNotFoundException($"Google Drive file not found: {norm}");
+
+        string? fileId;
+        if (!_pathToIdCache.TryGetValue(norm, out fileId))
+        {
+            var item = await GetItemAsync(norm, cancellationToken)
+                ?? throw new FileNotFoundException($"Google Drive file not found: {norm}");
+            fileId = item.NativeId;
+            if (fileId != null)
+                _pathToIdCache[norm] = fileId;
+        }
 
         // Check again in case GetItemAsync populated _webShortcutContentCache via ListDirectoryAsync
         if (_webShortcutContentCache.TryGetValue(norm, out shortcutBytes))
@@ -380,8 +483,11 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
             return;
         }
 
-        var url = $"{FilesEndpoint}/{Uri.EscapeDataString(item.NativeId!)}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true";
-        using var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (string.IsNullOrEmpty(fileId))
+            throw new FileNotFoundException($"Google Drive file ID not found for: {norm}");
+
+        var url = $"{FilesEndpoint}/{Uri.EscapeDataString(fileId)}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true";
+        using var resp = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Get, url), cancellationToken, HttpCompletionOption.ResponseHeadersRead);
         resp.EnsureSuccessStatusCode();
         await resp.Content.CopyToAsync(destination, cancellationToken);
     }
@@ -406,8 +512,16 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
         }
 
         await EnsureAuthenticatedAsync(cancellationToken);
-        var item = await GetItemAsync(norm, cancellationToken)
-            ?? throw new FileNotFoundException($"Google Drive file not found: {norm}");
+
+        string? fileId;
+        if (!_pathToIdCache.TryGetValue(norm, out fileId))
+        {
+            var item = await GetItemAsync(norm, cancellationToken)
+                ?? throw new FileNotFoundException($"Google Drive file not found: {norm}");
+            fileId = item.NativeId;
+            if (fileId != null)
+                _pathToIdCache[norm] = fileId;
+        }
 
         if (_webShortcutContentCache.TryGetValue(norm, out shortcutBytes))
         {
@@ -417,12 +531,19 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
             return available;
         }
 
-        var url = $"{FilesEndpoint}/{Uri.EscapeDataString(item.NativeId!)}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true";
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        long endOffset = fileOffset + count - 1;
-        req.Headers.Range = new RangeHeaderValue(fileOffset, endOffset);
+        if (string.IsNullOrEmpty(fileId))
+            throw new FileNotFoundException($"Google Drive file ID not found for: {norm}");
 
-        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        var url = $"{FilesEndpoint}/{Uri.EscapeDataString(fileId)}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true";
+        long endOffset = fileOffset + count - 1;
+
+        using var resp = await SendWithRetryAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Range = new RangeHeaderValue(fileOffset, endOffset);
+            return req;
+        }, cancellationToken, HttpCompletionOption.ResponseHeadersRead);
+
         if (resp.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
             return 0;
 

@@ -50,6 +50,8 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
     private readonly CancellationTokenSource _fsDisposeCts = new();
     private const int ChunkSize = 1024 * 1024; // 1 MB streaming chunks
     private const int MaxCachedChunks = 128;   // 128 MB maximum in-memory streaming chunk cache
+    private static readonly TimeSpan DirCacheTtl = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan ItemCacheTtl = TimeSpan.FromSeconds(60);
 
     private CloudVolumeQuota _cachedQuota = CloudVolumeQuota.DefaultUnbounded;
     private DateTime _quotaFetchedUtc = DateTime.MinValue;
@@ -362,14 +364,14 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         }
 
         if (_itemCache.TryGetValue(norm, out var cached) &&
-            (DateTime.UtcNow - cached.FetchedUtc) < TimeSpan.FromSeconds(5))
+            (DateTime.UtcNow - cached.FetchedUtc) < ItemCacheTtl)
         {
             return cached.Item;
         }
 
         var parent = VirtualPathHelper.GetParentPath(norm);
         if (_dirCache.TryGetValue(parent, out var dirCached) &&
-            (DateTime.UtcNow - dirCached.FetchedUtc) < TimeSpan.FromSeconds(5))
+            (DateTime.UtcNow - dirCached.FetchedUtc) < DirCacheTtl)
         {
             var fileName = VirtualPathHelper.GetFileName(norm);
             var match = dirCached.Items.FirstOrDefault(i => string.Equals(i.Name, fileName, StringComparison.OrdinalIgnoreCase));
@@ -389,7 +391,7 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
             return Array.Empty<CloudItemInfo>();
 
         if (_dirCache.TryGetValue(norm, out var cached) &&
-            (DateTime.UtcNow - cached.FetchedUtc) < TimeSpan.FromSeconds(5))
+            (DateTime.UtcNow - cached.FetchedUtc) < DirCacheTtl)
         {
             return cached.Items;
         }

@@ -976,4 +976,67 @@ public class CloudDriveMountTests
 
         public void Dispose() { }
     }
+
+    [Fact]
+    public void GoogleDrive_SanitizeFileNameForWindows_ReplacesIllegalCharactersAndTrailingDots()
+    {
+        var raw1 = "[PRiVATE] \\83a1b8c7d0\\::9e7c491c46f5a8.72c5bc533a9acf6922732efb758e2d.a8d862a6::_703d96d90e0c_ [newzNZB] [30_30] - yEnc  13 (1_1).txt";
+        var sanitized1 = GoogleDriveStorageProvider.SanitizeFileNameForWindows(raw1);
+        Assert.DoesNotContain('\\', sanitized1);
+        Assert.DoesNotContain(':', sanitized1);
+        Assert.DoesNotContain('/', sanitized1);
+        Assert.DoesNotContain('*', sanitized1);
+        Assert.DoesNotContain('?', sanitized1);
+        Assert.DoesNotContain('"', sanitized1);
+        Assert.DoesNotContain('<', sanitized1);
+        Assert.DoesNotContain('>', sanitized1);
+        Assert.DoesNotContain('|', sanitized1);
+        Assert.Equal("[PRiVATE] _83a1b8c7d0___9e7c491c46f5a8.72c5bc533a9acf6922732efb758e2d.a8d862a6___703d96d90e0c_ [newzNZB] [30_30] - yEnc  13 (1_1).txt", sanitized1);
+
+        var raw2 = "folder with trailing dot... ";
+        var sanitized2 = GoogleDriveStorageProvider.SanitizeFileNameForWindows(raw2);
+        Assert.Equal("folder with trailing dot", sanitized2);
+
+        var raw3 = "bad*file?name<test>|\"quoted\"";
+        var sanitized3 = GoogleDriveStorageProvider.SanitizeFileNameForWindows(raw3);
+        Assert.Equal("bad_file_name_test___quoted_", sanitized3);
+
+        var raw4 = "";
+        Assert.Equal("_", GoogleDriveStorageProvider.SanitizeFileNameForWindows(raw4));
+
+        var raw5 = "...";
+        Assert.Equal("_", GoogleDriveStorageProvider.SanitizeFileNameForWindows(raw5));
+    }
+
+    [Fact]
+    public async Task LiveGoogleDrive_SanitizesIllegalCharactersInFolder()
+    {
+        var configPath = @"C:\ProgramData\CloudDriveMount\drives.json";
+        if (!File.Exists(configPath)) return;
+
+        var store = new ConfigStore(configPath);
+        var gdriveCfg = store.LoadDrives().FirstOrDefault(d => d.Protocol == StorageProtocol.GoogleDrive);
+        if (gdriveCfg == null) return;
+
+        var provider = new GoogleDriveStorageProvider(gdriveCfg);
+        await provider.ConnectAsync();
+
+        var items = await provider.ListDirectoryAsync("/TV/Arrested Development/Season 04/Arrested.Development.Remix.S04E21.1080p.NF.WEB-DL.DD5.1.x264-NTb");
+        Assert.NotEmpty(items);
+
+        foreach (var item in items)
+        {
+            Assert.DoesNotContain(':', item.Name);
+            Assert.DoesNotContain('\\', item.Name);
+            Assert.DoesNotContain('/', item.Name);
+            Assert.DoesNotContain('*', item.Name);
+            Assert.DoesNotContain('?', item.Name);
+            Assert.DoesNotContain('"', item.Name);
+            Assert.DoesNotContain('<', item.Name);
+            Assert.DoesNotContain('>', item.Name);
+            Assert.DoesNotContain('|', item.Name);
+            Assert.False(item.Name.EndsWith('.'));
+            Assert.False(item.Name.EndsWith(' '));
+        }
+    }
 }
