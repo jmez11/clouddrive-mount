@@ -6,6 +6,7 @@ using CloudDriveMount.Core.Models;
 using CloudDriveMount.Core.Providers;
 using CloudDriveMount.Core.Services;
 using Fsp;
+using Renci.SshNet;
 using Xunit;
 using FileInfo = Fsp.Interop.FileInfo;
 
@@ -1042,6 +1043,78 @@ public class CloudDriveMountTests
             Assert.DoesNotContain('|', item.Name);
             Assert.False(item.Name.EndsWith('.'));
             Assert.False(item.Name.EndsWith(' '));
+        }
+    }
+
+    [Fact]
+    public void SftpSudoInterop_CreateSftpClient_ReturnsConfiguredSftpClient()
+    {
+        var conn = new ConnectionInfo("127.0.0.1", "testuser", new PasswordAuthenticationMethod("testuser", "secret"));
+        using var client = SftpSudoInterop.CreateSftpClient(conn, "sudo /usr/lib/openssh/sftp-server");
+
+        Assert.NotNull(client);
+        Assert.Equal("127.0.0.1", client.ConnectionInfo.Host);
+        Assert.Equal("testuser", client.ConnectionInfo.Username);
+    }
+
+    [Fact]
+    public void SftpSudoInterop_WrapChannelSession_InterceptsSubsystemRequestAndCallsSendExecRequest()
+    {
+        var mockChannel = new FakeChannelSession();
+        var wrapped = (FakeChannelSessionBase)SftpSudoInterop.WrapChannelSession(mockChannel, "sudo /custom/sftp-server", typeof(FakeChannelSessionBase));
+
+        // Calling SendSubsystemRequest("sftp") should be intercepted and invoke SendExecRequest on mockChannel
+        var result = wrapped.SendSubsystemRequest("sftp");
+        Assert.True(result);
+        Assert.Equal("sudo /custom/sftp-server", mockChannel.LastExecCommand);
+
+        // Subsystems other than sftp should pass through untouched
+        var otherResult = wrapped.SendSubsystemRequest("other-subsystem");
+        Assert.True(otherResult);
+        Assert.Equal("other-subsystem", mockChannel.LastSubsystemRequest);
+    }
+
+    [Fact]
+    public void DriveConfig_SuperuserMode_ClonesAndReflectsBadge()
+    {
+        var cfg = new DriveConfig
+        {
+            Protocol = StorageProtocol.Sftp,
+            DriveLetter = "S:",
+            SuperuserMode = true
+        };
+
+        Assert.Contains("• sudo", cfg.MountModeBadge);
+
+        var cloned = cfg.Clone();
+        Assert.True(cloned.SuperuserMode);
+        Assert.Equal(StorageProtocol.Sftp, cloned.Protocol);
+
+        cfg.SuperuserMode = false;
+        Assert.DoesNotContain("• sudo", cfg.MountModeBadge);
+    }
+
+    public interface FakeChannelSessionBase
+    {
+        bool SendSubsystemRequest(string subsystem);
+        bool SendExecRequest(string command);
+    }
+
+    private sealed class FakeChannelSession : FakeChannelSessionBase
+    {
+        public string? LastSubsystemRequest { get; private set; }
+        public string? LastExecCommand { get; private set; }
+
+        public bool SendSubsystemRequest(string subsystem)
+        {
+            LastSubsystemRequest = subsystem;
+            return true;
+        }
+
+        public bool SendExecRequest(string command)
+        {
+            LastExecCommand = command;
+            return true;
         }
     }
 

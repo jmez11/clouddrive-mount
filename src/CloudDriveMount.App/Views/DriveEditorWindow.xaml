@@ -459,6 +459,18 @@
                                  ToolTip="Optional Private Key Passphrase" />
                 </Grid>
 
+                <!-- SFTP Superuser Mode (sudo) Row -->
+                <Grid x:Name="SftpSudoRow" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="95" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <CheckBox x:Name="SftpSuperuserCheck"
+                              Grid.Column="1"
+                              Content="Superuser Mode (sudo)"
+                              Margin="0,2,0,2" />
+                </Grid>
+
                 <!-- TLS/SSL & Timeout Row -->
                 <Grid Margin="0,0,0,6">
                     <Grid.ColumnDefinitions>

@@ -140,6 +140,7 @@ public partial class DriveEditorWindow : Window
         AnonymousCheck.IsChecked = _config.Anonymous;
         PrivateKeyPathBox.Text = _config.PrivateKeyPath;
         PrivateKeyPassphraseBox.Password = CredentialProtector.Unprotect(_config.EncryptedPrivateKeyPassphrase);
+        SftpSuperuserCheck.IsChecked = _config.SuperuserMode;
         TlsVersionCombo.SelectedIndex = _config.TlsVersion == TlsProtocolVersion.Tls13 ? 1 : 0;
         TimeoutBox.Text = _config.TimeoutSeconds.ToString();
 
@@ -198,6 +199,9 @@ public partial class DriveEditorWindow : Window
             : Visibility.Collapsed;
 
         SshKeyRow.Visibility = proto == StorageProtocol.Sftp
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        SftpSudoRow.Visibility = proto == StorageProtocol.Sftp
             ? Visibility.Visible
             : Visibility.Collapsed;
 
@@ -514,6 +518,7 @@ public partial class DriveEditorWindow : Window
             _config.EncryptedPassword = CredentialProtector.Protect(PasswordBox.Password);
             _config.PrivateKeyPath = PrivateKeyPathBox.Text.Trim();
             _config.EncryptedPrivateKeyPassphrase = CredentialProtector.Protect(PrivateKeyPassphraseBox.Password);
+            _config.SuperuserMode = _config.Protocol == StorageProtocol.Sftp && SftpSuperuserCheck.IsChecked == true;
             _config.TlsVersion = TlsVersionCombo.SelectedIndex == 1 ? TlsProtocolVersion.Tls13 : TlsProtocolVersion.Tls12;
             _config.TimeoutSeconds = int.TryParse(TimeoutBox.Text.Trim(), out var timeout) ? Math.Clamp(timeout, 10, 600) : 100;
         }

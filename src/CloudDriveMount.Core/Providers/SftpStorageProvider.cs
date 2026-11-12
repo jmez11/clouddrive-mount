@@ -9,6 +9,7 @@ public sealed class SftpStorageProvider : ICloudStorageProvider
     private readonly DriveConfig _config;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SftpClient? _client;
+    private string? _preferredSudoCommand;
 
     public SftpStorageProvider(DriveConfig config)
     {
@@ -71,9 +72,51 @@ public sealed class SftpStorageProvider : ICloudStorageProvider
             Timeout = TimeSpan.FromSeconds(Math.Clamp(_config.TimeoutSeconds, 10, 600))
         };
 
-        _client = new SftpClient(connInfo);
-        await _client.ConnectAsync(cancellationToken);
-        return _client;
+        if (!_config.SuperuserMode)
+        {
+            _client = new SftpClient(connInfo);
+            await _client.ConnectAsync(cancellationToken);
+            return _client;
+        }
+
+        // Superuser Mode (sudo): connect via elevated exec channel.
+        // Try preferred command first, then fallback to candidate commands across Linux distributions.
+        var candidates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_preferredSudoCommand))
+        {
+            candidates.Add(_preferredSudoCommand);
+        }
+        foreach (var cmd in SftpSudoInterop.DefaultSudoCandidates)
+        {
+            if (!candidates.Contains(cmd))
+                candidates.Add(cmd);
+        }
+
+        Exception? lastException = null;
+        foreach (var sudoCmd in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SftpClient? candidateClient = null;
+            try
+            {
+                candidateClient = SftpSudoInterop.CreateSftpClient(connInfo, sudoCmd);
+                await candidateClient.ConnectAsync(cancellationToken);
+
+                // Verification that sftp subsystem is responsive
+                _ = candidateClient.WorkingDirectory;
+
+                _preferredSudoCommand = sudoCmd;
+                _client = candidateClient;
+                return _client;
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                candidateClient?.Dispose();
+            }
+        }
+
+        throw lastException ?? new InvalidOperationException("Failed to establish SFTP connection in Superuser Mode (sudo).");
     }
 
     public Task<CloudVolumeQuota> GetQuotaAsync(CancellationToken cancellationToken = default)

@@ -96,6 +96,11 @@ public class DriveConfig : INotifyPropertyChanged
     public TlsProtocolVersion TlsVersion { get; set; } = TlsProtocolVersion.Tls12;
     public int TimeoutSeconds { get; set; } = 100;
 
+    /// <summary>
+    /// Executes SFTP subsystem as root via sudo exec channel request.
+    /// </summary>
+    public bool SuperuserMode { get; set; } = false;
+
     // Cloudflare R2 Settings
     public string R2AccountId { get; set; } = string.Empty;
     public string R2AccessKeyId { get; set; } = string.Empty;
@@ -190,6 +195,7 @@ public class DriveConfig : INotifyPropertyChanged
             var mode = IsLocalDisk ? $"Local Disk ({LocalDiskVisibility})" : "Network Drive";
             if (ReadOnly) mode += " • R/O";
             if (FileLock) mode += " • File Lock";
+            if (Protocol == StorageProtocol.Sftp && SuperuserMode) mode += " • sudo";
             if (UseProxy && ProxyMode != CloudflaredProxyMode.None) mode += " • cloudflared";
             return mode;
         }
@@ -243,6 +249,7 @@ public class DriveConfig : INotifyPropertyChanged
             EncryptedPrivateKeyPassphrase = EncryptedPrivateKeyPassphrase,
             TlsVersion = TlsVersion,
             TimeoutSeconds = TimeoutSeconds,
+            SuperuserMode = SuperuserMode,
             R2AccountId = R2AccountId,
             R2AccessKeyId = R2AccessKeyId,
             EncryptedR2SecretAccessKey = EncryptedR2SecretAccessKey,
