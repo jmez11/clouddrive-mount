@@ -46,8 +46,10 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _chunkFetchLocks =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _prefetchThrottle = new(4, 4);
+    private readonly CancellationTokenSource _fsDisposeCts = new();
     private const int ChunkSize = 1024 * 1024; // 1 MB streaming chunks
-    private const int MaxCachedChunks = 64;    // 64 MB maximum in-memory cache
+    private const int MaxCachedChunks = 128;   // 128 MB maximum in-memory streaming chunk cache
 
     private CloudVolumeQuota _cachedQuota = CloudVolumeQuota.DefaultUnbounded;
     private DateTime _quotaFetchedUtc = DateTime.MinValue;
@@ -80,6 +82,10 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         public uint FileAttributes { get; set; }
         public DictionaryEntry[]? DirectoryEntries { get; set; }
 
+        public long LastReadChunkIndex { get; set; } = -1;
+        public int SequentialStreak { get; set; }
+        public CancellationTokenSource? PrefetchCts { get; set; }
+
         public void FillFileInfo(out FileInfo info)
         {
             info = default;
@@ -101,6 +107,14 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
 
         public void Dispose()
         {
+            try
+            {
+                PrefetchCts?.Cancel();
+                PrefetchCts?.Dispose();
+                PrefetchCts = null;
+            }
+            catch { }
+
             try
             {
                 StagingStream?.Dispose();
@@ -401,6 +415,19 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         InvalidateChunkCache(norm);
     }
 
+    private static readonly HashSet<string> MediaExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".webm",
+        ".ts", ".m2ts", ".mts", ".vob", ".flv", ".iso", ".mpg", ".mpeg",
+        ".mp3", ".flac", ".wav", ".aac", ".ogg", ".m4a", ".opus"
+    };
+
+    private static bool IsMediaFile(string virtualPath)
+    {
+        var ext = Path.GetExtension(virtualPath);
+        return !string.IsNullOrEmpty(ext) && MediaExtensions.Contains(ext);
+    }
+
     private byte[] GetOrCreateChunk(string virtualPath, long chunkIndex, ulong fileSize)
     {
         string key = $"{virtualPath}:{chunkIndex}";
@@ -440,6 +467,164 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         finally
         {
             sem.Release();
+        }
+    }
+
+    private async Task<byte[]> GetOrCreateChunkAsync(string virtualPath, long chunkIndex, ulong fileSize, CancellationToken cancellationToken = default)
+    {
+        string key = $"{virtualPath}:{chunkIndex}";
+        if (_chunkCache.TryGetValue(key, out var cached))
+        {
+            _chunkCache[key] = (Environment.TickCount64, cached.Data);
+            return cached.Data;
+        }
+
+        var sem = _chunkFetchLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+        await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_chunkCache.TryGetValue(key, out cached))
+            {
+                _chunkCache[key] = (Environment.TickCount64, cached.Data);
+                return cached.Data;
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+                return Array.Empty<byte>();
+
+            long chunkStart = chunkIndex * ChunkSize;
+            if (chunkStart >= (long)fileSize)
+                return Array.Empty<byte>();
+
+            int toFetch = (int)Math.Min(ChunkSize, (long)fileSize - chunkStart);
+            byte[] chunkData = new byte[toFetch];
+
+            int read = await _provider.ReadFileRangeAsync(virtualPath, chunkData, 0, chunkStart, toFetch, cancellationToken).ConfigureAwait(false);
+            if (read < toFetch)
+            {
+                Array.Resize(ref chunkData, Math.Max(0, read));
+            }
+
+            _chunkCache[key] = (Environment.TickCount64, chunkData);
+            TrimChunkCacheIfNeeded();
+            return chunkData;
+        }
+        finally
+        {
+            sem.Release();
+        }
+    }
+
+    private void UpdateSequentialStreakAndPrefetch(OpenHandleContext ctx, long offset, int bytesRead)
+    {
+        if (ctx.KnownFileSize <= (ulong)ChunkSize || bytesRead <= 0)
+            return;
+
+        long currentChunkIndex = offset / ChunkSize;
+        long nextChunkIndex = (offset + bytesRead + ChunkSize - 1) / ChunkSize;
+
+        lock (ctx)
+        {
+            bool isMedia = IsMediaFile(ctx.VirtualPath);
+            bool isLarge = ctx.KnownFileSize >= 20 * 1024 * 1024; // >= 20 MB
+
+            bool isSequential = ctx.LastReadChunkIndex >= 0 &&
+                (currentChunkIndex == ctx.LastReadChunkIndex ||
+                 currentChunkIndex == ctx.LastReadChunkIndex + 1);
+
+            if (isSequential)
+            {
+                ctx.SequentialStreak = Math.Min(32, ctx.SequentialStreak + 1);
+            }
+            else
+            {
+                // Non-sequential seek or jump (e.g. metadata probe or user scrubbing timeline)
+                ctx.SequentialStreak = 0;
+                try
+                {
+                    ctx.PrefetchCts?.Cancel();
+                    ctx.PrefetchCts?.Dispose();
+                }
+                catch { }
+                ctx.PrefetchCts = null;
+            }
+
+            ctx.LastReadChunkIndex = currentChunkIndex;
+
+            // Trigger parallel prefetching:
+            // 1. Any file read sequentially across chunks (streak >= 1)
+            // 2. Or media files being played forward
+            if (ctx.SequentialStreak >= 1 || (isMedia && currentChunkIndex > 0))
+            {
+                // Concurrently prefetch ahead:
+                // Start with 2 chunks ahead, ramp to 4, up to 6 chunks ahead (6 MB sliding lookahead window)
+                int prefetchCount = ctx.SequentialStreak >= 4 ? 6 : (ctx.SequentialStreak >= 2 ? 4 : 2);
+                if (isMedia && isLarge)
+                {
+                    prefetchCount = Math.Max(prefetchCount, 4);
+                }
+
+                long startPrefetchChunk = Math.Max(currentChunkIndex + 1, nextChunkIndex);
+                TriggerParallelPrefetch(ctx, startPrefetchChunk, prefetchCount);
+            }
+        }
+    }
+
+    private void TriggerParallelPrefetch(OpenHandleContext ctx, long startChunkIndex, int count)
+    {
+        if (_fsDisposeCts.IsCancellationRequested)
+            return;
+
+        if (ctx.PrefetchCts == null || ctx.PrefetchCts.IsCancellationRequested)
+        {
+            ctx.PrefetchCts = CancellationTokenSource.CreateLinkedTokenSource(_fsDisposeCts.Token);
+        }
+
+        var ct = ctx.PrefetchCts.Token;
+        string vpath = ctx.VirtualPath;
+        ulong fileSize = ctx.KnownFileSize;
+
+        for (int i = 0; i < count; i++)
+        {
+            long targetChunk = startChunkIndex + i;
+            long chunkStart = targetChunk * ChunkSize;
+            if (chunkStart >= (long)fileSize)
+                break;
+
+            string key = $"{vpath}:{targetChunk}";
+            if (_chunkCache.ContainsKey(key))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                if (ct.IsCancellationRequested)
+                    return;
+
+                try
+                {
+                    await _prefetchThrottle.WaitAsync(ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
+                try
+                {
+                    if (ct.IsCancellationRequested)
+                        return;
+
+                    await GetOrCreateChunkAsync(vpath, targetChunk, fileSize, ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Ignore background prefetch cancellations or transient connection errors
+                }
+                finally
+                {
+                    try { _prefetchThrottle.Release(); } catch { }
+                }
+            }, ct);
         }
     }
 
@@ -485,7 +670,10 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
             _chunkCache.TryRemove(k, out _);
             if (_chunkFetchLocks.TryRemove(k, out var sem))
             {
-                sem.Dispose();
+                if (sem.CurrentCount > 0)
+                {
+                    sem.Dispose();
+                }
             }
         }
     }
@@ -499,7 +687,10 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
             _chunkCache.TryRemove(key, out _);
             if (_chunkFetchLocks.TryRemove(key, out var sem))
             {
-                sem.Dispose();
+                if (sem.CurrentCount > 0)
+                {
+                    sem.Dispose();
+                }
             }
         }
     }
@@ -887,6 +1078,9 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
             if (totalRead > 0)
                 Marshal.Copy(temp, 0, Buffer, totalRead);
             PBytesTransferred = (uint)totalRead;
+
+            UpdateSequentialStreakAndPrefetch(ctx, (long)Offset, totalRead);
+
             return STATUS_SUCCESS;
         }
         catch
@@ -1267,6 +1461,19 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
 
     public void Dispose()
     {
+        try
+        {
+            _fsDisposeCts.Cancel();
+            _fsDisposeCts.Dispose();
+        }
+        catch { }
+
+        try
+        {
+            _prefetchThrottle.Dispose();
+        }
+        catch { }
+
         try
         {
             if (Directory.Exists(_cacheDir))

@@ -638,6 +638,61 @@ public class CloudDriveMountTests
     }
 
     [Fact]
+    public async Task CloudDriveFileSystem_VideoStreaming_PrefetchesUpcomingChunksConcurrently()
+    {
+        var cfg = new DriveConfig
+        {
+            Id = Guid.NewGuid(),
+            Protocol = StorageProtocol.GoogleDrive,
+            DriveLetter = "W",
+            Label = "Google Drive"
+        };
+
+        using var memProvider = new InMemoryCloudStorageProvider();
+        // 1 GB video file
+        const ulong videoFileSize = 1024UL * 1024 * 1024;
+        memProvider.SeedVirtualFile("/Movies/Avatar.mkv", videoFileSize);
+
+        using var fs = new CloudDriveFileSystem(cfg, memProvider);
+
+        Assert.Equal(FileSystemBase.STATUS_SUCCESS,
+            fs.Open("\\Movies\\Avatar.mkv", 0, 0, out var node, out var desc, out var info, out _));
+
+        const uint readLength = 65536; // 64 KB per player read
+        var buf = Marshal.AllocHGlobal((int)readLength);
+        try
+        {
+            // Read 0 to 64 KB
+            Assert.Equal(FileSystemBase.STATUS_SUCCESS,
+                fs.Read(node, desc, buf, 0, readLength, out uint pRead1));
+            Assert.Equal(readLength, pRead1);
+
+            // Read 64 KB to 128 KB (sequential playback)
+            Assert.Equal(FileSystemBase.STATUS_SUCCESS,
+                fs.Read(node, desc, buf, readLength, readLength, out uint pRead2));
+            Assert.Equal(readLength, pRead2);
+
+            // Read across chunk boundary (1 MB = 1048576)
+            Assert.Equal(FileSystemBase.STATUS_SUCCESS,
+                fs.Read(node, desc, buf, 1048576, readLength, out uint pRead3));
+            Assert.Equal(readLength, pRead3);
+
+            // Wait a brief moment for the background concurrent prefetch tasks to process
+            await Task.Delay(150);
+
+            // Verify prefetch occurred: upcoming chunks were fetched ahead into the cache
+            Assert.True(memProvider.RangeReadCount >= 3,
+                $"Expected concurrent prefetch to fetch chunks ahead, but got {memProvider.RangeReadCount}");
+
+            fs.Close(node, desc);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buf);
+        }
+    }
+
+    [Fact]
     public async Task CloudDriveFileSystem_EliminatesWindowsSystemFoldersAndArtifacts()
     {
         // 1. Verify pattern recognition helper
