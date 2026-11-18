@@ -49,12 +49,22 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
     {
         const int maxRetries = 4;
         int delayMs = 500;
+        bool refreshedAfter401 = false;
 
         for (int attempt = 1; ; attempt++)
         {
             await EnsureAuthenticatedAsync(cancellationToken);
             using var request = requestFactory();
             var resp = await _http.SendAsync(request, completionOption, cancellationToken);
+
+            if (resp.StatusCode == HttpStatusCode.Unauthorized && !refreshedAfter401)
+            {
+                refreshedAfter401 = true;
+                _tokenExpiryUtc = DateTime.MinValue;
+                _accessToken = string.Empty;
+                resp.Dispose();
+                continue;
+            }
 
             if (attempt >= maxRetries ||
                 ((int)resp.StatusCode != 429 && // Too Many Requests
@@ -232,10 +242,21 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
                     _config.EncryptedGoogleAccessToken = CredentialProtector.Protect(_accessToken);
                 }
             }
+            else
+            {
+                var errorBody = await resp.Content.ReadAsStringAsync(cancellationToken);
+                _accessToken = string.Empty;
+                _config.EncryptedGoogleAccessToken = string.Empty;
+                if (errorBody.Contains("invalid_grant") || errorBody.Contains("expired") || errorBody.Contains("revoked"))
+                {
+                    throw new InvalidOperationException("Google Drive authorization has expired or was revoked. Please edit the drive and click 'Sign in with Google' to re-authenticate.");
+                }
+                throw new InvalidOperationException($"Google Drive token refresh failed ({resp.StatusCode}): {errorBody}");
+            }
         }
 
         if (string.IsNullOrWhiteSpace(_accessToken))
-            throw new InvalidOperationException("Google Drive requires an Access Token or OAuth Refresh Token.");
+            throw new InvalidOperationException("Google Drive requires an Access Token or OAuth Refresh Token. Please edit the drive and click 'Sign in with Google' to re-authenticate.");
 
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
         if (_tokenExpiryUtc == DateTime.MinValue)
@@ -246,7 +267,17 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         _pathToIdCache["/"] = RootFolderId;
-        await GetQuotaAsync(cancellationToken);
+
+        // Verify active Google Drive session before allowing WinFsp to mount
+        using var resp = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Get, AboutEndpoint), cancellationToken);
+        if (resp.StatusCode == HttpStatusCode.Unauthorized || resp.StatusCode == HttpStatusCode.Forbidden)
+        {
+            _accessToken = string.Empty;
+            _config.EncryptedGoogleAccessToken = string.Empty;
+            throw new InvalidOperationException("Google Drive authorization has expired (401 Unauthorized). Please edit the drive and click 'Sign in with Google' to re-authenticate.");
+        }
+        resp.EnsureSuccessStatusCode();
+
         await InitChangesTrackingAsync(cancellationToken);
     }
 

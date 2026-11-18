@@ -455,15 +455,24 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
             return cached.Items;
         }
 
-        var rawItems = _provider.ListDirectoryAsync(norm).GetAwaiter().GetResult();
-        var items = rawItems.Where(i => !IsWindowsSystemArtifactPath(i.Name) && !IsWindowsSystemArtifactPath(i.FullPath)).ToList();
-        now = DateTime.UtcNow;
-        _dirCache[norm] = (now, items);
-        foreach (var item in items)
+        try
         {
-            _itemCache[item.FullPath] = (now, item);
+            var rawItems = _provider.ListDirectoryAsync(norm).GetAwaiter().GetResult();
+            var items = rawItems.Where(i => !IsWindowsSystemArtifactPath(i.Name) && !IsWindowsSystemArtifactPath(i.FullPath)).ToList();
+            now = DateTime.UtcNow;
+            _dirCache[norm] = (now, items);
+            foreach (var item in items)
+            {
+                _itemCache[item.FullPath] = (now, item);
+            }
+            return items;
         }
-        return items;
+        catch (Exception)
+        {
+            if (_dirCache.TryGetValue(norm, out var stale))
+                return stale.Items;
+            throw;
+        }
     }
 
     private void InvalidatePathAndParent(string virtualPath)
@@ -1464,7 +1473,16 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
         var ctx = (OpenHandleContext)FileDesc0;
         if (ctx.DirectoryEntries == null)
         {
-            var items = GetCachedOrFetchDirectory(ctx.VirtualPath);
+            IReadOnlyList<CloudItemInfo> items;
+            try
+            {
+                items = GetCachedOrFetchDirectory(ctx.VirtualPath);
+            }
+            catch
+            {
+                items = Array.Empty<CloudItemInfo>();
+            }
+
             var sorted = new SortedList(StringComparer.OrdinalIgnoreCase);
 
             if (ctx.VirtualPath != "/")
