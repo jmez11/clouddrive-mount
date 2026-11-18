@@ -58,22 +58,87 @@ public partial class MainWindow : Window
         RefreshEnvironmentBanner();
         RebuildDriveCards();
 
-        Loaded += OnMainWindowLoaded;
+        StartAutoReconnect();
     }
 
-    private async void OnMainWindowLoaded(object sender, RoutedEventArgs e)
+    private int _autoReconnectStarted;
+
+    public void StartAutoReconnect()
     {
-        // Auto-reconnect drives marked ReconnectAtStart
-        var autoDrives = _drives.Where(d => d.ReconnectAtStart && !d.SignInOnEachConnection).ToList();
-        foreach (var drive in autoDrives)
+        if (Interlocked.Exchange(ref _autoReconnectStarted, 1) != 0)
+            return;
+
+        _ = Task.Run(async () =>
         {
+            await AutoReconnectDrivesAsync();
+        });
+    }
+
+    private async Task AutoReconnectDrivesAsync()
+    {
+        var autoDrives = _drives.Where(d => d.ReconnectAtStart && !d.SignInOnEachConnection).ToList();
+        if (autoDrives.Count == 0)
+            return;
+
+        await Task.WhenAll(autoDrives.Select(drive => AutoReconnectSingleDriveAsync(drive)));
+    }
+
+    private async Task AutoReconnectSingleDriveAsync(DriveConfig drive)
+    {
+        const int maxAttempts = 4;
+        var delays = new[] { TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(6), TimeSpan.FromSeconds(10) };
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            if (drive.IsConnected)
+                return;
+
             try
             {
+                if (attempt > 1)
+                {
+                    drive.State = DriveConnectionState.Connecting;
+                    drive.StatusMessage = $"Connecting (attempt {attempt}/{maxAttempts})...";
+                }
+
                 await _mountManager.MountDriveAsync(drive);
+
+                Dispatcher.Invoke(() =>
+                {
+                    FooterStatusText.Text = $"Mounted {drive.Label} on {drive.NormalizedMountPoint}\\.";
+                });
+
+                _trayService.ShowNotification(
+                    "Drive Connected",
+                    $"{drive.Label} ({drive.ProtocolDisplayName}) is now available at {drive.NormalizedMountPoint}\\");
+                return;
             }
-            catch
+            catch (Exception ex)
             {
-                // Individual drive error is displayed on its card
+                // Non-transient setup errors should not retry repeatedly
+                if (ex is InvalidOperationException &&
+                    (ex.Message.Contains("WinFsp") || ex.Message.Contains("already in use")))
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        FooterStatusText.Text = $"Error on {drive.NormalizedMountPoint}: {ex.Message}";
+                    });
+                    break;
+                }
+
+                if (attempt < maxAttempts)
+                {
+                    drive.State = DriveConnectionState.Connecting;
+                    drive.StatusMessage = $"Waiting for network (retry {attempt}/{maxAttempts - 1})...";
+                    await Task.Delay(delays[attempt - 1]);
+                }
+                else
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        FooterStatusText.Text = $"Failed to reconnect {drive.Label}: {ex.Message}";
+                    });
+                }
             }
         }
     }

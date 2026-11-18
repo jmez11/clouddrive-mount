@@ -27,6 +27,7 @@ public partial class App : System.Windows.Application
 
         var mainWindow = new MainWindow();
         MainWindow = mainWindow;
+        mainWindow.StartAutoReconnect();
 
         bool startInTray = e.Args.Any(a => string.Equals(a, "--tray", StringComparison.OrdinalIgnoreCase));
         if (startInTray)
