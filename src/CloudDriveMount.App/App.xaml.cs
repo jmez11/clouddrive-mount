@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Windows;
+using CloudDriveMount.App.Views;
 using CloudDriveMount.Core.Services;
 
 namespace CloudDriveMount.App;
@@ -25,8 +26,24 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        var mainWindow = new MainWindow();
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+        bool forcePortable = e.Args.Any(a => string.Equals(a, "--portable", StringComparison.OrdinalIgnoreCase));
+        var configStore = new ConfigStore(forcePortable: forcePortable);
+        var vault = configStore.LoadVaultMetadata();
+        if (vault != null && !VaultManager.TryAutoUnlock(vault))
+        {
+            var unlockWindow = new VaultUnlockWindow(vault);
+            if (unlockWindow.ShowDialog() != true)
+            {
+                Shutdown();
+                return;
+            }
+        }
+
+        var mainWindow = new MainWindow(configStore);
         MainWindow = mainWindow;
+        ShutdownMode = ShutdownMode.OnMainWindowClose;
         mainWindow.StartAutoReconnect();
 
         bool startInTray = e.Args.Any(a => string.Equals(a, "--tray", StringComparison.OrdinalIgnoreCase));

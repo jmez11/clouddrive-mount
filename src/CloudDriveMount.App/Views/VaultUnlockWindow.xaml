@@ -1,0 +1,91 @@
+<Window x:Class="CloudDriveMount.App.Views.VaultUnlockWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Unlock Credential Vault"
+        Width="440"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        Background="#1A1A1A"
+        Foreground="#F0F0F0"
+        FontFamily="Segoe UI">
+
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="Unlock CloudDrive Mount Vault"
+                   FontSize="17"
+                   FontWeight="Bold"
+                   Foreground="#FFFFFF"
+                   Margin="0,0,0,6" />
+
+        <TextBlock Grid.Row="1"
+                   Text="Your saved drive credentials are encrypted with AES-256-GCM. Enter your Master Password to unlock and mount your drives."
+                   FontSize="12.5"
+                   Foreground="#B0B0B0"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,14" />
+
+        <StackPanel Grid.Row="2" Margin="0,0,0,10">
+            <TextBlock Text="Master Password"
+                       FontSize="12"
+                       Foreground="#CCCCCC"
+                       Margin="0,0,0,4" />
+            <PasswordBox x:Name="PasswordBox"
+                         Background="#262626"
+                         Foreground="#FFFFFF"
+                         BorderBrush="#444444"
+                         BorderThickness="1"
+                         Padding="8,6"
+                         FontSize="13" />
+        </StackPanel>
+
+        <CheckBox Grid.Row="3"
+                  x:Name="RememberCheckBox"
+                  Content="Remember unlock on this PC (stored locally via Windows DPAPI)"
+                  IsChecked="True"
+                  Foreground="#D0D0D0"
+                  FontSize="12"
+                  Margin="0,0,0,10" />
+
+        <TextBlock Grid.Row="4"
+                   x:Name="ErrorText"
+                   Foreground="#EF9A9A"
+                   FontSize="12"
+                   TextWrapping="Wrap"
+                   Visibility="Collapsed"
+                   Margin="0,0,0,10" />
+
+        <StackPanel Grid.Row="5"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,6,0,0">
+            <Button Content="Exit"
+                    Width="84"
+                    Padding="10,6"
+                    Margin="0,0,8,0"
+                    Background="#2D2D2D"
+                    Foreground="#F0F0F0"
+                    BorderBrush="#4D4D4D"
+                    IsCancel="True"
+                    Click="OnCancelClick" />
+            <Button Content="Unlock"
+                    Width="104"
+                    Padding="10,6"
+                    Background="#1E6B3E"
+                    Foreground="#FFFFFF"
+                    BorderBrush="#43A047"
+                    FontWeight="SemiBold"
+                    IsDefault="True"
+                    Click="OnUnlockClick" />
+        </StackPanel>
+    </Grid>
+</Window>

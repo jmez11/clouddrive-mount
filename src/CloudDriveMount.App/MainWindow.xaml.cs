@@ -25,11 +25,15 @@ public partial class MainWindow : Window
     private bool _isExplicitExit;
     private bool _shownTrayHint;
 
-    public MainWindow()
+    public MainWindow() : this(new ConfigStore())
+    {
+    }
+
+    public MainWindow(ConfigStore configStore)
     {
         InitializeComponent();
 
-        _configStore = new ConfigStore();
+        _configStore = configStore;
         _mountManager = new DriveMountManager();
         _drives = _configStore.LoadDrives();
 
@@ -468,6 +472,15 @@ public partial class MainWindow : Window
     private async void OnDisconnectAllClick(object sender, RoutedEventArgs e)
     {
         await DisconnectAllDrivesAsync();
+    }
+
+    private void OnPortableVaultClick(object sender, RoutedEventArgs e)
+    {
+        var win = new VaultSettingsWindow(_configStore, _drives)
+        {
+            Owner = this
+        };
+        win.ShowDialog();
     }
 
     private async void OnInstallWinFspClick(object sender, RoutedEventArgs e)

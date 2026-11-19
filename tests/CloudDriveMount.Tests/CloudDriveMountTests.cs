@@ -1215,4 +1215,81 @@ public class CloudDriveMountTests
 
         fs.Close(null!, dirHandle);
     }
+
+    [Fact]
+    public void VaultManager_PortableMasterPasswordAndRememberCache_RoundTrips()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"cdm_vault_test_{Guid.NewGuid():N}");
+        var cacheDir = Path.Combine(tempDir, "cache");
+        var configPath = Path.Combine(tempDir, "drives.json");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            CredentialProtector.SetVaultKey(null);
+            var store = new ConfigStore(configPath);
+            var drive = new DriveConfig
+            {
+                Protocol = StorageProtocol.Sftp,
+                DriveLetter = "S:",
+                Label = "Portable SFTP",
+                Host = "sftp.example.com",
+                Username = "alice",
+                EncryptedPassword = CredentialProtector.Protect("s3cr3t-pass!"),
+                EncryptedPrivateKeyPassphrase = CredentialProtector.Protect("key-pass"),
+                EncryptedGoogleRefreshToken = CredentialProtector.Protect("refresh-tok")
+            };
+            var drives = new List<DriveConfig> { drive };
+            store.SaveDrives(drives);
+
+            // Enable Master Password with Remember on this PC
+            VaultManager.EnableOrChangeMasterPassword(store, drives, "correct-horse-battery", rememberOnThisPc: true, cacheDirOverride: cacheDir);
+
+            Assert.True(CredentialProtector.IsVaultUnlocked);
+            Assert.NotNull(store.CurrentVault);
+            Assert.StartsWith("v1:", drive.EncryptedPassword);
+            Assert.StartsWith("v1:", drive.EncryptedPrivateKeyPassphrase);
+            Assert.StartsWith("v1:", drive.EncryptedGoogleRefreshToken);
+            Assert.True(VaultManager.HasRememberedKey(store.CurrentVault!.VaultId, cacheDir));
+
+            // Simulate fresh launch on a new process (lock memory key)
+            CredentialProtector.SetVaultKey(null);
+            Assert.False(CredentialProtector.IsVaultUnlocked);
+            Assert.Equal(string.Empty, CredentialProtector.Unprotect(drive.EncryptedPassword));
+
+            var reloadedStore = new ConfigStore(configPath);
+            var vault = reloadedStore.LoadVaultMetadata();
+            Assert.NotNull(vault);
+            var reloadedDrives = reloadedStore.LoadDrives();
+            Assert.Single(reloadedDrives);
+
+            // Auto-unlock via local DPAPI cache
+            Assert.True(VaultManager.TryAutoUnlock(vault!, cacheDir));
+            Assert.Equal("s3cr3t-pass!", CredentialProtector.Unprotect(reloadedDrives[0].EncryptedPassword));
+            Assert.Equal("key-pass", CredentialProtector.Unprotect(reloadedDrives[0].EncryptedPrivateKeyPassphrase));
+            Assert.Equal("refresh-tok", CredentialProtector.Unprotect(reloadedDrives[0].EncryptedGoogleRefreshToken));
+
+            // Forget this PC and simulate launch on another PC
+            VaultManager.ForgetThisPc(vault!.VaultId, cacheDir);
+            CredentialProtector.SetVaultKey(null);
+            Assert.False(VaultManager.TryAutoUnlock(vault, cacheDir));
+
+            // Wrong password rejected; right password unlocks
+            Assert.False(VaultManager.TryUnlockWithPassword(vault, "wrong-password", rememberOnThisPc: false, cacheDirOverride: cacheDir));
+            Assert.True(VaultManager.TryUnlockWithPassword(vault, "correct-horse-battery", rememberOnThisPc: false, cacheDirOverride: cacheDir));
+            Assert.Equal("s3cr3t-pass!", CredentialProtector.Unprotect(reloadedDrives[0].EncryptedPassword));
+
+            // Disable Master Password reverts cleanly to DPAPI
+            VaultManager.DisableMasterPassword(reloadedStore, reloadedDrives, cacheDir);
+            Assert.Null(reloadedStore.CurrentVault);
+            Assert.False(CredentialProtector.IsVaultUnlocked);
+            Assert.False(reloadedDrives[0].EncryptedPassword.StartsWith("v1:", StringComparison.Ordinal));
+            Assert.Equal("s3cr3t-pass!", CredentialProtector.Unprotect(reloadedDrives[0].EncryptedPassword));
+        }
+        finally
+        {
+            CredentialProtector.SetVaultKey(null);
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
 }

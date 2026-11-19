@@ -1,0 +1,178 @@
+<Window x:Class="CloudDriveMount.App.Views.VaultSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Portable Mode &amp; Credential Vault"
+        Width="540"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="#1A1A1A"
+        Foreground="#F0F0F0"
+        FontFamily="Segoe UI">
+
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Portable Mode Section -->
+        <Border Grid.Row="0"
+                Background="#232323"
+                BorderBrush="#363636"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="16"
+                Margin="0,0,0,14">
+            <StackPanel>
+                <TextBlock Text="Configuration Mode"
+                           FontSize="15"
+                           FontWeight="SemiBold"
+                           Foreground="#FFFFFF"
+                           Margin="0,0,0,6" />
+                <TextBlock x:Name="ModeStatusText"
+                           FontSize="12.5"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,4" />
+                <TextBlock x:Name="ConfigPathText"
+                           FontSize="11.5"
+                           Foreground="#9E9E9E"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12" />
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="SwitchModeBtn"
+                            Content="Switch to Portable Mode"
+                            Padding="12,6"
+                            Background="#2D2D2D"
+                            Foreground="#F0F0F0"
+                            BorderBrush="#4D4D4D"
+                            Cursor="Hand"
+                            Click="OnSwitchModeClick" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Vault Encryption Section -->
+        <Border Grid.Row="1"
+                Background="#232323"
+                BorderBrush="#363636"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="16"
+                Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock Text="Portable Credential Vault (AES-256-GCM)"
+                           FontSize="15"
+                           FontWeight="SemiBold"
+                           Foreground="#FFFFFF"
+                           Margin="0,0,0,6" />
+                <TextBlock x:Name="VaultStatusText"
+                           FontSize="12.5"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,6" />
+                <TextBlock Text="Setting a Master Password encrypts all passwords, SFTP keys, R2 secrets, and Google OAuth tokens inside drives.json using AES-256-GCM so they work securely on any PC."
+                           FontSize="12"
+                           Foreground="#9E9E9E"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12" />
+
+                <Grid Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock x:Name="PasswordLabel"
+                                   Text="Master Password"
+                                   FontSize="12"
+                                   Foreground="#CCCCCC"
+                                   Margin="0,0,0,4" />
+                        <PasswordBox x:Name="NewPasswordBox"
+                                     Background="#1A1A1A"
+                                     Foreground="#FFFFFF"
+                                     BorderBrush="#444444"
+                                     BorderThickness="1"
+                                     Padding="8,6"
+                                     FontSize="13" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Confirm Password"
+                                   FontSize="12"
+                                   Foreground="#CCCCCC"
+                                   Margin="0,0,0,4" />
+                        <PasswordBox x:Name="ConfirmPasswordBox"
+                                     Background="#1A1A1A"
+                                     Foreground="#FFFFFF"
+                                     BorderBrush="#444444"
+                                     BorderThickness="1"
+                                     Padding="8,6"
+                                     FontSize="13" />
+                    </StackPanel>
+                </Grid>
+
+                <CheckBox x:Name="RememberCheckBox"
+                          Content="Remember unlock on this PC (stored locally via Windows DPAPI)"
+                          IsChecked="True"
+                          Foreground="#D0D0D0"
+                          FontSize="12"
+                          Margin="0,0,0,12" />
+
+                <WrapPanel Orientation="Horizontal">
+                    <Button x:Name="SetPasswordBtn"
+                            Content="Set Master Password"
+                            Padding="12,6"
+                            Margin="0,0,8,6"
+                            Background="#1E6B3E"
+                            Foreground="#FFFFFF"
+                            BorderBrush="#43A047"
+                            FontWeight="SemiBold"
+                            Cursor="Hand"
+                            Click="OnSetPasswordClick" />
+                    <Button x:Name="ForgetPcBtn"
+                            Content="Forget Unlock on This PC"
+                            Padding="12,6"
+                            Margin="0,0,8,6"
+                            Background="#2D2D2D"
+                            Foreground="#F0F0F0"
+                            BorderBrush="#4D4D4D"
+                            Cursor="Hand"
+                            Click="OnForgetPcClick" />
+                    <Button x:Name="RemovePasswordBtn"
+                            Content="Remove Master Password"
+                            Padding="12,6"
+                            Margin="0,0,0,6"
+                            Background="#2D2D2D"
+                            Foreground="#EF9A9A"
+                            BorderBrush="#5C3636"
+                            Cursor="Hand"
+                            Click="OnRemovePasswordClick" />
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Grid.Row="2"
+                   x:Name="FeedbackText"
+                   FontSize="12"
+                   TextWrapping="Wrap"
+                   Visibility="Collapsed"
+                   Margin="0,0,0,10" />
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Close"
+                    Width="92"
+                    Padding="10,6"
+                    Background="#2D2D2D"
+                    Foreground="#F0F0F0"
+                    BorderBrush="#4D4D4D"
+                    IsDefault="True"
+                    IsCancel="True"
+                    Click="OnCloseClick" />
+        </StackPanel>
+    </Grid>
+</Window>

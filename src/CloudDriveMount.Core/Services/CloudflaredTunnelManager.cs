@@ -47,6 +47,11 @@ public class CloudflaredTunnelManager : IDisposable
             return configuredPath;
         }
 
+        // Prefer portable cloudflared.exe placed alongside CloudDriveMount.exe
+        var portableCandidate = Path.Combine(AppContext.BaseDirectory, "cloudflared.exe");
+        if (File.Exists(portableCandidate))
+            return portableCandidate;
+
         // Check PATH
         var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
         foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))

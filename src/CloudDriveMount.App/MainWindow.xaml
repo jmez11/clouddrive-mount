@@ -100,7 +100,11 @@
                             Click="OnConnectAllClick" />
                     <Button Content="Disconnect All"
                             Style="{StaticResource ToolbarBtn}"
+                            Margin="0,0,8,0"
                             Click="OnDisconnectAllClick" />
+                    <Button Content="Portable &amp; Vault"
+                            Style="{StaticResource ToolbarBtn}"
+                            Click="OnPortableVaultClick" />
                 </StackPanel>
             </DockPanel>
         </Border>
