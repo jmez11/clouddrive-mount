@@ -73,8 +73,6 @@ jobs:
         with:
           tag_name: ${{ inputs.tag_name || github.ref_name }}
           files: |
-            dist/CloudDriveMount.exe
-            dist/CloudDriveMount.exe.sha256
             dist/CloudDriveMount-win-x64.zip
             dist/CloudDriveMount-win-x64.zip.sha256
             dist/*.cer
