@@ -1,0 +1,17 @@
+---
+layout: default
+---
+<section class="hero">
+  <h1>{{ page.title }}</h1>
+  {% if page.tagline %}<p>{{ page.tagline }}</p>{% endif %}
+  {% if page.tag %}<p class="tag">{{ page.tag }}</p>{% endif %}
+</section>
+<nav class="doc-nav">
+  <a href="{{ site.baseurl }}/">Docs home</a>
+  <a href="{{ site.baseurl }}/getting-started.html">Getting started</a>
+  <a href="{{ site.baseurl }}/providers.html">Providers</a>
+  <a href="{{ site.baseurl }}/google-drive.html">Google Drive</a>
+  <a href="{{ site.baseurl }}/cloudflared-and-sharing.html">Cloudflared &amp; sharing</a>
+  <a href="{{ site.baseurl }}/troubleshooting.html">Troubleshooting</a>
+</nav>
+{{ content }}

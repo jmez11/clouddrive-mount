@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ page.title }} — OceanSideVR</title>
+<meta name="description" content="{{ page.description | default: site.description }}">
+<link rel="icon" href="https://oceanside-vr.com/assets/company-logo.png">
+<link rel="stylesheet" href="https://oceanside-vr.com/styles.css">
+<style>
+/* Docs-specific additions on top of the hub stylesheet. */
+.doc-nav { display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; margin: 0 0 2rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.doc-nav a { color: var(--muted); text-decoration: none; font-size: 0.95rem; }
+.doc-nav a:hover { color: var(--accent); }
+main h2 { margin-top: 2.25rem; }
+main h3 { margin-top: 1.75rem; }
+main a { color: var(--accent); }
+main code { background: rgba(0, 0, 0, 0.3); padding: 0.1rem 0.35rem; border-radius: 6px; font-size: 0.9em; }
+main pre { background: rgba(0, 0, 0, 0.3); padding: 1rem; border-radius: 10px; overflow-x: auto; }
+main pre code { background: none; padding: 0; }
+main img { max-width: 100%; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a href="https://oceanside-vr.com/" style="display:flex;align-items:center;gap:0.75rem;text-decoration:none;color:inherit;">
+    <img src="https://oceanside-vr.com/assets/company-logo.png" alt="OceanSideVR logo" class="logo">
+    <span class="wordmark">OceanSide<span class="wordmark-vr" style="color:#ff9d4d">VR</span></span>
+  </a>
+</header>
+<main>
+{{ content }}
+</main>
+<footer>
+  <p>&copy; 2026 OceanSideVR &middot; <a href="https://oceanside-vr.com/">OceanSideVR home</a> &middot; <a href="https://github.com/jmez11/clouddrive-mount">GitHub</a></p>
+</footer>
+</body>
+</html>
