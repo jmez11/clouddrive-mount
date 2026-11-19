@@ -46,3 +46,8 @@ dotnet run --project src\CloudDriveMount.App\CloudDriveMount.App.csproj
 # Build portable single-file executable
 dotnet publish src\CloudDriveMount.App\CloudDriveMount.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=embedded -o dist
 ```
+
+## Legal
+
+- [Terms of Service](TERMS_OF_SERVICE.md)
+- [Privacy Policy](PRIVACY_POLICY.md)
