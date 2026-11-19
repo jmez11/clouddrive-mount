@@ -3,21 +3,13 @@ layout: page
 title: Google Drive
 ---
 
-CloudDrive Mount mounts your Google Drive as a readable and writable drive letter. It uses **your own OAuth client** — there is no shared OceanSideVR Google project, so your tokens are yours alone.
+CloudDrive Mount mounts your Google Drive as a readable and writable drive letter. Just add a Google Drive drive and sign in — there's no OAuth client to set up.
 
-## Set up your own OAuth client
+## Sign in
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a project (or pick an existing one).
-2. Enable the **Google Drive API** for the project.
-3. Configure the **OAuth consent screen** (External user type is fine for personal use).
-4. Create an **OAuth client ID** of application type **Desktop app**.
-5. Download the `client_secret_*.json` file for that client.
-
-Then, in CloudDrive Mount, add a Google Drive drive:
-
-- Click **Import** and choose the `client_secret_*.json` file, or paste the **Client ID** and **Client Secret** into their boxes.
-- Pick a scope: **My Drive**, **Shared with me**, or a single **Folder** (paste the folder ID from the folder's Drive URL).
-- Click **Sign in with Google...**.
+1. Add a Google Drive drive.
+2. Pick a scope: **My Drive**, **Shared with me**, or a single **Folder** (paste the folder ID from the folder's Drive URL).
+3. Click **Sign in with Google...** and sign in with your Google account.
 
 ## The unverified-app warning
 
@@ -36,3 +28,7 @@ Native Google files can't be downloaded as regular files, so they appear on the 
 ## Revoking access
 
 To disconnect the app from your Google account, remove its access in your Google account's [third-party access settings](https://myaccount.google.com/permissions), then delete the drive in CloudDrive Mount.
+
+## Advanced: your own OAuth client
+
+If you build the app yourself, you can supply your own OAuth client credentials instead of the ones bundled at build time: set the `GOOGLE_DRIVE_JSON` environment variable, or place a `google_drive_client.json` file next to the executable.

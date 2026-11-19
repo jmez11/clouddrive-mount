@@ -17,7 +17,7 @@ None. CloudDrive Mount does not collect, transmit, or sell any personal informat
 To mount your drives, the app stores your drive configuration on your computer in a file called `drives.json` (in `%ProgramData%\CloudDriveMount\`, or next to the executable in portable mode). That file contains:
 
 - Connection details: server addresses, ports, usernames, drive letters, labels, and folder or bucket names.
-- Credentials: passwords, private-key passphrases, Cloudflare Access service-token secrets, Cloudflare R2 secret keys, and Google OAuth client secrets and tokens. These values are encrypted on your device using the Windows Data Protection API (DPAPI) before they are written to disk.
+- Credentials: passwords, private-key passphrases, Cloudflare Access service-token secrets, Cloudflare R2 secret keys, and Google OAuth tokens. These values are encrypted on your device using the Windows Data Protection API (DPAPI) before they are written to disk.
 
 Your private key itself is never copied into the configuration — only the path to the key file on your computer is stored.
 
@@ -30,7 +30,7 @@ Files you open through a mounted drive are cached locally on your computer (in y
 CloudDrive Mount connects only to the services you configure:
 
 - Your SFTP, FTP/FTPS, or WebDAV servers, using the addresses and credentials you provide.
-- Google Drive, using the Google account you sign in with and the OAuth client credentials you provide. The app requests the `https://www.googleapis.com/auth/drive` scope, which allows it to see and manage your Google Drive files, because it mounts your Drive as a readable and writable drive. Sign-in uses OAuth 2.0 with PKCE and a loopback redirect on your own computer. Your Google access and refresh tokens are stored encrypted on your device and are sent only to Google. You can revoke the app's access at any time from your Google account's third-party access settings.
+- Google Drive, using the Google account you sign in with. The app's OAuth client credentials are bundled with the application at build time. The app requests the `https://www.googleapis.com/auth/drive` scope, which allows it to see and manage your Google Drive files, because it mounts your Drive as a readable and writable drive. Sign-in uses OAuth 2.0 with PKCE and a loopback redirect on your own computer. Your Google access and refresh tokens are stored encrypted on your device and are sent only to Google. You can revoke the app's access at any time from your Google account's third-party access settings.
 - Cloudflare R2, using the account ID, bucket, and API token you provide.
 - Cloudflare tunnels, if you configure `cloudflared` proxying for a drive.
 

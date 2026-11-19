@@ -7,7 +7,7 @@ CloudDrive Mount turns remote storage into ordinary Windows drives. Connect an S
 
 - [Getting started](getting-started.html) — Install the app, add your first drive, reconnect at startup, portable mode.
 - [Providers](providers.html) — What each storage provider needs: SFTP, FTP/FTPS, WebDAV, Google Drive, and Cloudflare R2.
-- [Google Drive](google-drive.html) — Set up your own OAuth client, sign in, and what the unverified-app warning means.
+- [Google Drive](google-drive.html) — Sign in, scopes, and what the unverified-app warning means.
 - [Cloudflared & sharing](cloudflared-and-sharing.html) — Tunnels, Access service tokens, Local Disk modes, and sharing a drive on your LAN.
 - [Troubleshooting](troubleshooting.html) — WinFsp, sign-in timeouts, stale mounts, and where the app keeps its files.
 

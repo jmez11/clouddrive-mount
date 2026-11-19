@@ -30,9 +30,9 @@ Connect to any RFC 4918 WebDAV server.
 
 ## Google Drive
 
-Mount your Google Drive as a drive letter, using your own OAuth client.
+Mount your Google Drive as a drive letter.
 
-- You create a Desktop-app OAuth client in Google Cloud Console and import it into the app — see [Google Drive](google-drive.html) for the full steps.
+- Just sign in with Google — there's no OAuth client to set up. See [Google Drive](google-drive.html) for the steps.
 - Mount your whole Drive, files shared with you, or a single folder.
 - Google Docs, Sheets, and Slides appear as `.url` shortcuts that open in your browser.
 - When you sign in, Google shows an "unverified app" warning. That's expected — click **Advanced**, then **Go to** continue.
