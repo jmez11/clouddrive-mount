@@ -51,3 +51,7 @@ dotnet publish src\CloudDriveMount.App\CloudDriveMount.App.csproj -c Release -r 
 
 - [Terms of Service](TERMS_OF_SERVICE.md)
 - [Privacy Policy](PRIVACY_POLICY.md)
+
+## License
+
+CloudDrive Mount is open-source software licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later). See [LICENSE](LICENSE).

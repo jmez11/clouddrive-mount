@@ -10,7 +10,7 @@ CloudDrive Mount mounts remote storage — SFTP, FTP/FTPS, WebDAV, Google Drive,
 
 ## 2. License
 
-We grant you a non-exclusive, non-transferable license to install and use CloudDrive Mount on Windows devices you own or manage, for personal or commercial use. You may not sell, sublicense, or redistribute the application as your own product. The application's source code is available at https://github.com/jmez11/clouddrive-mount; any license file in that repository governs the source code.
+CloudDrive Mount is free and open-source software, licensed under the GNU General Public License version 3 or later (GPL-3.0-or-later). The full license text is in the `LICENSE` file in the repository (https://github.com/jmez11/clouddrive-mount/blob/main/LICENSE). You are free to use, modify, and redistribute the software under the terms of that license, including the requirement that modified versions you distribute remain under the same license.
 
 ## 3. Your responsibilities
 
