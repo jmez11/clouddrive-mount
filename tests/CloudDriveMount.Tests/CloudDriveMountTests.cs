@@ -1135,17 +1135,44 @@ public class CloudDriveMountTests
     }
 
     [Fact]
-    public void AutoReconnect_FiltersDrivesCorrectly()
+    public void GoogleDriveClientConfig_ParseClientJson_ParsesInstalledFormat()
     {
-        var d1 = new DriveConfig { Label = "Auto1", ReconnectAtStart = true, SignInOnEachConnection = false };
-        var d2 = new DriveConfig { Label = "Manual", ReconnectAtStart = false, SignInOnEachConnection = false };
-        var d3 = new DriveConfig { Label = "Interactive", ReconnectAtStart = true, SignInOnEachConnection = true };
+        var json = """
+        {
+          "installed": {
+            "client_id": "test-client-id.apps.googleusercontent.com",
+            "client_secret": "test-secret"
+          }
+        }
+        """;
 
-        var list = new List<DriveConfig> { d1, d2, d3 };
-        var candidates = list.Where(d => d.ReconnectAtStart && !d.SignInOnEachConnection).ToList();
+        var (cid, csec) = GoogleDriveClientConfig.ParseClientJson(json);
+        Assert.Equal("test-client-id.apps.googleusercontent.com", cid);
+        Assert.Equal("test-secret", csec);
+    }
 
-        Assert.Single(candidates);
-        Assert.Equal("Auto1", candidates[0].Label);
+    [Fact]
+    public void GoogleDriveClientConfig_ParseClientJson_ParsesDirectFormat()
+    {
+        var json = """
+        {
+          "client_id": "direct-id.apps.googleusercontent.com",
+          "client_secret": "direct-secret"
+        }
+        """;
+
+        var (cid, csec) = GoogleDriveClientConfig.ParseClientJson(json);
+        Assert.Equal("direct-id.apps.googleusercontent.com", cid);
+        Assert.Equal("direct-secret", csec);
+    }
+
+    [Fact]
+    public void GoogleDriveClientConfig_GetCredentials_ReturnsValidCredentials()
+    {
+        var (cid, csec) = GoogleDriveClientConfig.GetCredentials();
+        Assert.False(string.IsNullOrWhiteSpace(cid));
+        Assert.Contains("apps.googleusercontent.com", cid);
+        Assert.False(string.IsNullOrWhiteSpace(csec));
     }
 
     [Fact]

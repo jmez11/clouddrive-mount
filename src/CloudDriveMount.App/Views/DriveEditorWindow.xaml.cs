@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using CloudDriveMount.App.Helpers;
 using CloudDriveMount.Core.Models;
 using CloudDriveMount.Core.Providers;
@@ -159,11 +160,7 @@ public partial class DriveEditorWindow : Window
         GDriveSharedRadio.IsChecked = _config.GoogleScope == GoogleDriveScope.SharedWithMe;
         GDriveFolderRadio.IsChecked = _config.GoogleScope == GoogleDriveScope.Folder;
         GDriveFolderIdBox.Text = _config.GoogleFolderId;
-        GDriveClientIdBox.Text = _config.GoogleClientId;
-        GDriveClientSecretBox.Password = CredentialProtector.Unprotect(_config.EncryptedGoogleClientSecret);
-        var refresh = CredentialProtector.Unprotect(_config.EncryptedGoogleRefreshToken);
-        var access = CredentialProtector.Unprotect(_config.EncryptedGoogleAccessToken);
-        GDriveTokenBox.Password = !string.IsNullOrEmpty(refresh) ? refresh : access;
+        UpdateGoogleAuthStatusText();
 
         UpdateLocalDiskState();
         UpdateProxyPanelState();
@@ -401,59 +398,45 @@ public partial class DriveEditorWindow : Window
         }
     }
 
-    private void OnImportGoogleClientJsonClick(object sender, RoutedEventArgs e)
+    private void UpdateGoogleAuthStatusText()
     {
-        var dlg = new OpenFileDialog
+        bool hasRefresh = !string.IsNullOrEmpty(_config.EncryptedGoogleRefreshToken);
+        bool hasAccess = !string.IsNullOrEmpty(_config.EncryptedGoogleAccessToken);
+        if (hasRefresh)
         {
-            Title = "Select Google OAuth client_secret.json",
-            Filter = "Google OAuth JSON (*.json)|*.json|All Files (*.*)|*.*"
-        };
-        if (dlg.ShowDialog(this) != true)
-            return;
-
-        try
-        {
-            var json = System.IO.File.ReadAllText(dlg.FileName);
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
-            var root = doc.RootElement;
-            if (root.TryGetProperty("installed", out var installed) || root.TryGetProperty("web", out installed))
-            {
-                if (installed.TryGetProperty("client_id", out var cid))
-                    GDriveClientIdBox.Text = cid.GetString() ?? string.Empty;
-                if (installed.TryGetProperty("client_secret", out var csec))
-                    GDriveClientSecretBox.Password = csec.GetString() ?? string.Empty;
-                ValidationStatusText.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                ShowError("Selected JSON does not contain an 'installed' or 'web' Google OAuth client definition.");
-            }
+            GDriveTokenStatusBox.Text = "✓ Authorized (Google Account linked)";
+            GDriveTokenStatusBox.Foreground = new SolidColorBrush(Color.FromRgb(129, 199, 132));
         }
-        catch (Exception ex)
+        else if (hasAccess)
         {
-            ShowError($"Failed to parse Google OAuth JSON: {ex.Message}");
+            GDriveTokenStatusBox.Text = "✓ Authorized (Active session)";
+            GDriveTokenStatusBox.Foreground = new SolidColorBrush(Color.FromRgb(129, 199, 132));
+        }
+        else
+        {
+            GDriveTokenStatusBox.Text = "Not signed in — click 'Sign in with Google...'";
+            GDriveTokenStatusBox.Foreground = new SolidColorBrush(Color.FromRgb(255, 183, 77));
         }
     }
 
     private async void OnGoogleOAuthSignInClick(object sender, RoutedEventArgs e)
     {
         ValidationStatusText.Visibility = Visibility.Collapsed;
-        var clientId = GDriveClientIdBox.Text.Trim();
-        var clientSecret = GDriveClientSecretBox.Password.Trim();
-
-        if (string.IsNullOrEmpty(clientId))
-        {
-            ShowError("Enter your Google OAuth 2.0 Client ID before starting browser sign-in, or paste an Access/Refresh Token directly.");
-            return;
-        }
 
         try
         {
-            var (access, refresh) = await GoogleDriveStorageProvider.AuthorizeInteractiveAsync(clientId, clientSecret);
+            var (access, refresh) = await GoogleDriveStorageProvider.AuthorizeInteractiveAsync();
             _config.EncryptedGoogleAccessToken = CredentialProtector.Protect(access);
             if (!string.IsNullOrEmpty(refresh))
                 _config.EncryptedGoogleRefreshToken = CredentialProtector.Protect(refresh);
-            GDriveTokenBox.Password = !string.IsNullOrEmpty(refresh) ? refresh : access;
+
+            var (cid, csec) = GoogleDriveClientConfig.GetCredentials();
+            if (!string.IsNullOrEmpty(cid))
+                _config.GoogleClientId = cid;
+            if (!string.IsNullOrEmpty(csec))
+                _config.EncryptedGoogleClientSecret = CredentialProtector.Protect(csec);
+
+            UpdateGoogleAuthStatusText();
         }
         catch (Exception ex)
         {
@@ -544,22 +527,17 @@ public partial class DriveEditorWindow : Window
                 ? GoogleDriveScope.SharedWithMe
                 : (GDriveFolderRadio.IsChecked == true ? GoogleDriveScope.Folder : GoogleDriveScope.MyDrive);
             _config.GoogleFolderId = GDriveFolderIdBox.Text.Trim();
-            _config.GoogleClientId = GDriveClientIdBox.Text.Trim();
-            _config.EncryptedGoogleClientSecret = CredentialProtector.Protect(GDriveClientSecretBox.Password.Trim());
 
-            var tokenInput = GDriveTokenBox.Password.Trim();
-            if (string.IsNullOrEmpty(tokenInput) && string.IsNullOrEmpty(_config.EncryptedGoogleAccessToken))
+            var (cid, csec) = GoogleDriveClientConfig.GetCredentials();
+            if (!string.IsNullOrEmpty(cid))
+                _config.GoogleClientId = cid;
+            if (!string.IsNullOrEmpty(csec))
+                _config.EncryptedGoogleClientSecret = CredentialProtector.Protect(csec);
+
+            if (string.IsNullOrEmpty(_config.EncryptedGoogleRefreshToken) && string.IsNullOrEmpty(_config.EncryptedGoogleAccessToken))
             {
-                ShowError("Please sign in with Google or provide an Access/Refresh Token.");
+                ShowError("Please click 'Sign in with Google...' to link your Google account.");
                 return false;
-            }
-
-            if (!string.IsNullOrEmpty(tokenInput))
-            {
-                if (!string.IsNullOrEmpty(_config.GoogleClientId))
-                    _config.EncryptedGoogleRefreshToken = CredentialProtector.Protect(tokenInput);
-                else
-                    _config.EncryptedGoogleAccessToken = CredentialProtector.Protect(tokenInput);
             }
         }
 

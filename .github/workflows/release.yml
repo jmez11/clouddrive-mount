@@ -38,6 +38,18 @@ jobs:
           dotnet-version: '8.0.x'
           cache: false
 
+      - name: Inject Google Drive OAuth client credentials
+        shell: pwsh
+        env:
+          GOOGLE_DRIVE_JSON: ${{ secrets.GOOGLE_DRIVE_JSON }}
+        run: |
+          if ($env:GOOGLE_DRIVE_JSON) {
+            $destDir = "src/CloudDriveMount.Core/Resources"
+            if (!(Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force }
+            [System.IO.File]::WriteAllText("$destDir/google_drive_client.json", $env:GOOGLE_DRIVE_JSON, [System.Text.Encoding]::UTF8)
+            Write-Host "Injected Google Drive OAuth credentials."
+          }
+
       - name: Restore dependencies
         run: dotnet restore CloudDriveMount.sln
 
@@ -50,6 +62,7 @@ jobs:
       - name: Package and sign CloudDriveMount.exe
         shell: pwsh
         env:
+          GOOGLE_DRIVE_JSON: ${{ secrets.GOOGLE_DRIVE_JSON }}
           WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 || secrets.WINDOWS_CERTIFICATE_BASE64 || secrets.SIGNING_CERTIFICATE_BASE64 }}
           WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD || secrets.WINDOWS_CERTIFICATE_PASSWORD || secrets.SIGNING_CERTIFICATE_PASSWORD }}
         run: ./tools/Package-Release.ps1 -Configuration Release

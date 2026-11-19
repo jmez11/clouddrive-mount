@@ -21,6 +21,14 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $PublishDir = Join-Path $OutputDir "publish-$Runtime"
 Remove-Item -Recurse -Force $PublishDir -ErrorAction SilentlyContinue
 
+if ($env:GOOGLE_DRIVE_JSON) {
+    $resDir = Join-Path $RepoRoot "src\CloudDriveMount.Core\Resources"
+    if (-not (Test-Path $resDir)) { New-Item -ItemType Directory -Path $resDir -Force | Out-Null }
+    $destFile = Join-Path $resDir "google_drive_client.json"
+    [System.IO.File]::WriteAllText($destFile, $env:GOOGLE_DRIVE_JSON, [System.Text.Encoding]::UTF8)
+    Write-Host "Injected Google Drive OAuth credentials into $destFile" -ForegroundColor Green
+}
+
 Write-Host "Publishing CloudDriveMount ($Configuration / $Runtime)..." -ForegroundColor Cyan
 & $DotnetExe publish "$RepoRoot\src\CloudDriveMount.App\CloudDriveMount.App.csproj" `
     -c $Configuration `

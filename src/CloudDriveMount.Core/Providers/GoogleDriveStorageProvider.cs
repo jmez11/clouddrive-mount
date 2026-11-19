@@ -108,12 +108,16 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
     };
 
     public static async Task<(string AccessToken, string RefreshToken)> AuthorizeInteractiveAsync(
-        string clientId,
-        string clientSecret,
+        string? clientId = null,
+        string? clientSecret = null,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(clientId))
-            throw new InvalidOperationException("Google OAuth Client ID is required.");
+        var (defaultId, defaultSecret) = GoogleDriveClientConfig.GetCredentials();
+        var resolvedClientId = !string.IsNullOrWhiteSpace(clientId) ? clientId.Trim() : defaultId;
+        var resolvedClientSecret = !string.IsNullOrWhiteSpace(clientSecret) ? clientSecret.Trim() : defaultSecret;
+
+        if (string.IsNullOrWhiteSpace(resolvedClientId))
+            throw new InvalidOperationException("Google OAuth Client credentials are not configured in this build. Please configure the GOOGLE_DRIVE_JSON build secret.");
 
         var port = CloudflaredTunnelManager.AllocateEphemeralPort();
         var redirectUri = $"http://127.0.0.1:{port}/callback/";
@@ -126,7 +130,7 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
         var scope = Uri.EscapeDataString("https://www.googleapis.com/auth/drive");
         var authUrl =
             $"https://accounts.google.com/o/oauth2/v2/auth?response_type=code" +
-            $"&client_id={Uri.EscapeDataString(clientId.Trim())}" +
+            $"&client_id={Uri.EscapeDataString(resolvedClientId)}" +
             $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
             $"&scope={scope}&access_type=offline&prompt=consent" +
             $"&code_challenge={codeChallenge}&code_challenge_method=S256";
@@ -163,13 +167,13 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
         var form = new Dictionary<string, string>
         {
             ["code"] = code,
-            ["client_id"] = clientId.Trim(),
+            ["client_id"] = resolvedClientId,
             ["redirect_uri"] = redirectUri,
             ["grant_type"] = "authorization_code",
             ["code_verifier"] = codeVerifier
         };
-        if (!string.IsNullOrWhiteSpace(clientSecret))
-            form["client_secret"] = clientSecret.Trim();
+        if (!string.IsNullOrWhiteSpace(resolvedClientSecret))
+            form["client_secret"] = resolvedClientSecret;
 
         using var resp = await http.PostAsync(TokenEndpoint, new FormUrlEncodedContent(form), cancellationToken);
         var json = await resp.Content.ReadAsStringAsync(cancellationToken);
@@ -217,17 +221,22 @@ public sealed class GoogleDriveStorageProvider : ICloudStorageProvider
         }
 
         var refreshToken = CredentialProtector.Unprotect(_config.EncryptedGoogleRefreshToken);
-        if (!string.IsNullOrWhiteSpace(refreshToken) && !string.IsNullOrWhiteSpace(_config.GoogleClientId))
+        var (defaultClientId, defaultClientSecret) = GoogleDriveClientConfig.GetCredentials();
+        var clientId = !string.IsNullOrWhiteSpace(_config.GoogleClientId) ? _config.GoogleClientId.Trim() : defaultClientId;
+        var clientSecret = !string.IsNullOrWhiteSpace(_config.EncryptedGoogleClientSecret)
+            ? CredentialProtector.Unprotect(_config.EncryptedGoogleClientSecret).Trim()
+            : defaultClientSecret;
+
+        if (!string.IsNullOrWhiteSpace(refreshToken) && !string.IsNullOrWhiteSpace(clientId))
         {
             var form = new Dictionary<string, string>
             {
-                ["client_id"] = _config.GoogleClientId.Trim(),
+                ["client_id"] = clientId,
                 ["refresh_token"] = refreshToken.Trim(),
                 ["grant_type"] = "refresh_token"
             };
-            var secret = CredentialProtector.Unprotect(_config.EncryptedGoogleClientSecret);
-            if (!string.IsNullOrWhiteSpace(secret))
-                form["client_secret"] = secret.Trim();
+            if (!string.IsNullOrWhiteSpace(clientSecret))
+                form["client_secret"] = clientSecret;
 
             using var resp = await _http.PostAsync(TokenEndpoint, new FormUrlEncodedContent(form), cancellationToken);
             if (resp.IsSuccessStatusCode)

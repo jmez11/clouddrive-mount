@@ -7,7 +7,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <Version>0.1.14</Version>
+    <Version>0.1.15</Version>
     <Company>Oceanside-VR</Company>
     <Product>CloudDrive Mount for Windows</Product>
     <Description>CloudDrive Mount virtual filesystem client for Windows</Description>
@@ -35,6 +35,10 @@
     <None Include="..\..\lib\winfsp\winfsp-x64.dll" Link="winfsp-x64.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\google_drive_client.json" Condition="Exists('Resources\google_drive_client.json')" />
   </ItemGroup>
 
 </Project>

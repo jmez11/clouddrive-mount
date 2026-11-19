@@ -33,3 +33,5 @@ config/
 cache/
 *.msi
 !lib/winfsp/winfsp.msi
+google_drive_client.json
+Resources/google_drive_client.json

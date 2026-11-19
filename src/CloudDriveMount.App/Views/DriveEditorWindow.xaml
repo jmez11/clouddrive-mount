@@ -634,50 +634,24 @@
                              ToolTip="Google Drive Folder ID from URL" />
                 </Grid>
 
-                <Grid Margin="0,0,0,8">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="115" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="8" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="6" />
-                        <ColumnDefinition Width="95" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="OAuth Client"
-                               FontWeight="SemiBold"
-                               HorizontalAlignment="Right"
-                               Margin="0,0,12,0" />
-                    <TextBox x:Name="GDriveClientIdBox"
-                             Grid.Column="1"
-                             ToolTip="Google Cloud OAuth 2.0 Desktop Client ID (*.apps.googleusercontent.com)" />
-                    <PasswordBox x:Name="GDriveClientSecretBox"
-                                 Grid.Column="3"
-                                 ToolTip="Google Cloud OAuth 2.0 Client Secret (GOCSPX-...)" />
-                    <Button Grid.Column="5"
-                            Content="Import JSON"
-                            Style="{StaticResource ActionBtn}"
-                            Padding="6,5"
-                            ToolTip="Import client_secret_*.json downloaded from Google Cloud Console"
-                            Click="OnImportGoogleClientJsonClick" />
-                </Grid>
-
                 <Grid Margin="0,0,0,6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="115" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="170" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock Text="Access / Refresh"
+                    <TextBlock Text="Account"
                                FontWeight="SemiBold"
                                HorizontalAlignment="Right"
                                Margin="0,0,12,0" />
-                    <PasswordBox x:Name="GDriveTokenBox"
-                                 Grid.Column="1"
-                                 Margin="0,0,8,0"
-                                 ToolTip="OAuth Refresh Token or Access Token (populated automatically when signing in)" />
+                    <TextBox x:Name="GDriveTokenStatusBox"
+                             Grid.Column="1"
+                             Margin="0,0,8,0"
+                             IsReadOnly="True"
+                             ToolTip="Google Account authorization status" />
                     <Button Grid.Column="2"
                             Content="Sign in with Google..."
-                            Style="{StaticResource ActionBtn}"
+                            Style="{StaticResource PrimaryBtn}"
                             Padding="10,5"
                             Click="OnGoogleOAuthSignInClick" />
                 </Grid>
