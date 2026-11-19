@@ -1,0 +1,5 @@
+title: CloudDrive Mount Docs
+description: Documentation for CloudDrive Mount, a Windows app that mounts SFTP, FTP, WebDAV, Google Drive, and Cloudflare R2 as drive letters.
+theme: minima
+url: "https://jmez11.github.io"
+baseurl: "/clouddrive-mount"

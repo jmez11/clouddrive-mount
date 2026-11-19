@@ -47,6 +47,14 @@ dotnet run --project src\CloudDriveMount.App\CloudDriveMount.App.csproj
 dotnet publish src\CloudDriveMount.App\CloudDriveMount.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=embedded -o dist
 ```
 
+## Documentation
+
+- [Getting started](docs/getting-started.md)
+- [Providers](docs/providers.md)
+- [Google Drive](docs/google-drive.md)
+- [Cloudflared & sharing](docs/cloudflared-and-sharing.md)
+- [Troubleshooting](docs/troubleshooting.md)
+
 ## Legal
 
 - [Terms of Service](TERMS_OF_SERVICE.md)
