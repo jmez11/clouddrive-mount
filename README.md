@@ -18,7 +18,7 @@ A native .NET 8 + WinFsp Windows desktop and System Tray application for mountin
 - **Local Disk (`Public` vs `Private`) & Windows LAN Sharing**:
   - Mounting with **Local Disk + Public** registers the drive with the Windows Kernel MountPointManager (`\GLOBAL??\<Drive>:`) and applies permissive NTFS ACLs so the drive can be shared across your LAN using Windows Explorer's native **Properties → Sharing → Advanced Sharing** tab.
 - **Portable Single-File Executable**:
-  - Publishes as a self-contained single-file `CloudDriveMount.exe`. Adding an empty `portable.mode` file (or `config\` folder) next to `CloudDriveMount.exe` stores all settings and cache alongside the executable.
+  - Publishes as a self-contained single-file `CloudDriveMount.exe`. Placing a `drives.json` file next to `CloudDriveMount.exe` stores your drive settings alongside the executable. The file cache always lives in the Windows temp folder (`%TEMP%\CloudDriveMountCache`).
 
 ## Project Structure
 
