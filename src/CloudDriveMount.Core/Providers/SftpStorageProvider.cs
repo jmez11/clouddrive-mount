@@ -171,26 +171,55 @@ public sealed class SftpStorageProvider : ICloudStorageProvider
         try
         {
             var client = await EnsureConnectedLockedAsync(cancellationToken);
-            var entries = await Task.Run(() => client.ListDirectory(remoteDir).ToList(), cancellationToken);
-            var results = new List<CloudItemInfo>();
-
-            foreach (var item in entries)
+            var results = await Task.Run(() =>
             {
-                if (item.Name is "." or "..")
-                    continue;
+                var entries = client.ListDirectory(remoteDir).ToList();
+                var list = new List<CloudItemInfo>(entries.Count);
 
-                var childVirtual = normDir == "/" ? $"/{item.Name}" : $"{normDir}/{item.Name}";
-                var modTime = item.LastWriteTimeUtc == default ? DateTime.UtcNow : item.LastWriteTimeUtc;
-                var accTime = item.LastAccessTimeUtc == default ? modTime : item.LastAccessTimeUtc;
-                results.Add(new CloudItemInfo(
-                    item.Name,
-                    childVirtual,
-                    item.IsDirectory,
-                    item.IsDirectory ? 0UL : (ulong)Math.Max(0, item.Length),
-                    modTime,
-                    modTime,
-                    accTime));
-            }
+                foreach (var item in entries)
+                {
+                    if (item.Name is "." or "..")
+                        continue;
+
+                    bool isDir = item.IsDirectory;
+                    long size = item.Length;
+                    var modTime = item.LastWriteTimeUtc == default ? DateTime.UtcNow : item.LastWriteTimeUtc;
+                    var accTime = item.LastAccessTimeUtc == default ? modTime : item.LastAccessTimeUtc;
+
+                    // Follow symlinks (SSH_FXP_STAT) so linked directories appear as folders
+                    // and linked files report their target size instead of the link path length.
+                    if (item.IsSymbolicLink)
+                    {
+                        try
+                        {
+                            var targetAttrs = client.GetAttributes(item.FullName);
+                            isDir = targetAttrs.IsDirectory;
+                            size = targetAttrs.Size;
+                            if (targetAttrs.LastWriteTimeUtc != default)
+                                modTime = targetAttrs.LastWriteTimeUtc;
+                            if (targetAttrs.LastAccessTimeUtc != default)
+                                accTime = targetAttrs.LastAccessTimeUtc;
+                        }
+                        catch when (client.IsConnected)
+                        {
+                            // Skip broken, inaccessible, or circular symlinks rather than failing the listing
+                            continue;
+                        }
+                    }
+
+                    var childVirtual = normDir == "/" ? $"/{item.Name}" : $"{normDir}/{item.Name}";
+                    list.Add(new CloudItemInfo(
+                        item.Name,
+                        childVirtual,
+                        isDir,
+                        isDir ? 0UL : (ulong)Math.Max(0, size),
+                        modTime,
+                        modTime,
+                        accTime));
+                }
+
+                return list;
+            }, cancellationToken);
 
             return results;
         }

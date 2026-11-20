@@ -69,7 +69,6 @@ public class DriveConfig : INotifyPropertyChanged
 
     // Common Mount Options
     public bool ReconnectAtStart { get; set; } = true;
-    public bool SignInOnEachConnection { get; set; } = false;
     public bool IsLocalDisk { get; set; } = false;
     public LocalDiskScope LocalDiskVisibility { get; set; } = LocalDiskScope.Public;
     public bool UseProxy { get; set; } = false;
@@ -227,7 +226,6 @@ public class DriveConfig : INotifyPropertyChanged
             DriveLetter = DriveLetter,
             Label = Label,
             ReconnectAtStart = ReconnectAtStart,
-            SignInOnEachConnection = SignInOnEachConnection,
             IsLocalDisk = IsLocalDisk,
             LocalDiskVisibility = LocalDiskVisibility,
             UseProxy = UseProxy,

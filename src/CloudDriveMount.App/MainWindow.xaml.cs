@@ -80,7 +80,7 @@ public partial class MainWindow : Window
 
     private async Task AutoReconnectDrivesAsync()
     {
-        var autoDrives = _drives.Where(d => d.ReconnectAtStart && !d.SignInOnEachConnection).ToList();
+        var autoDrives = _drives.Where(d => d.ReconnectAtStart).ToList();
         if (autoDrives.Count == 0)
             return;
 
@@ -217,9 +217,13 @@ public partial class MainWindow : Window
         grid.Children.Add(iconImg);
 
         // Column 1: Drive Info & Status
-        var infoStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        var infoStack = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 0)
+        };
 
-        var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 3) };
+        var titleRow = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 3) };
         var letterBadge = new Border
         {
             Background = drive.IsConnected
@@ -267,12 +271,13 @@ public partial class MainWindow : Window
 
         infoStack.Children.Add(titleRow);
 
-        var subRow = new StackPanel { Orientation = Orientation.Horizontal };
+        var subRow = new WrapPanel { Orientation = Orientation.Horizontal };
         subRow.Children.Add(new TextBlock
         {
             Text = drive.EndpointSummary,
             FontSize = 12,
             Foreground = new SolidColorBrush(Color.FromRgb(158, 158, 158)),
+            TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(0, 0, 14, 0)
         });
 
@@ -288,6 +293,7 @@ public partial class MainWindow : Window
         {
             Text = $"• {drive.StatusMessage}",
             FontSize = 12,
+            TextTrimming = TextTrimming.CharacterEllipsis,
             Foreground = new SolidColorBrush(statusColor)
         });
 
@@ -341,6 +347,7 @@ public partial class MainWindow : Window
         {
             Content = "✕",
             Width = 36,
+            Padding = new Thickness(0, 6, 0, 6),
             ToolTip = "Remove Drive",
             IsEnabled = !drive.IsConnected && !drive.IsBusy,
             Style = (Style)FindResource("ToolbarBtn")

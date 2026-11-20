@@ -223,8 +223,6 @@
                     <CheckBox x:Name="ReconnectCheck"
                               Content="▶  Reconnect at program start"
                               IsChecked="True" />
-                    <CheckBox x:Name="SignInEachCheck"
-                              Content="👤  Sign in on each connection" />
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <CheckBox x:Name="LocalDiskCheck"
                                   Content="🖴  Local Disk"

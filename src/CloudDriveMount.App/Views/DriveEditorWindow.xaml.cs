@@ -109,7 +109,6 @@ public partial class DriveEditorWindow : Window
 
         DriveLabelBox.Text = _config.Label;
         ReconnectCheck.IsChecked = _config.ReconnectAtStart;
-        SignInEachCheck.IsChecked = _config.SignInOnEachConnection;
         LocalDiskCheck.IsChecked = _config.IsLocalDisk;
         PublicScopeRadio.IsChecked = _config.LocalDiskVisibility == LocalDiskScope.Public;
         PrivateScopeRadio.IsChecked = _config.LocalDiskVisibility == LocalDiskScope.Private;
@@ -461,7 +460,6 @@ public partial class DriveEditorWindow : Window
             : DriveLabelBox.Text.Trim();
 
         _config.ReconnectAtStart = ReconnectCheck.IsChecked == true;
-        _config.SignInOnEachConnection = SignInEachCheck.IsChecked == true;
         _config.IsLocalDisk = LocalDiskCheck.IsChecked == true;
         _config.LocalDiskVisibility = PublicScopeRadio.IsChecked == true ? LocalDiskScope.Public : LocalDiskScope.Private;
         _config.UseProxy = ProxyCheck.IsChecked == true;
