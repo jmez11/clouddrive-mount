@@ -350,13 +350,57 @@ public sealed class SftpStorageProvider : ICloudStorageProvider
         try
         {
             var client = await EnsureConnectedLockedAsync(cancellationToken);
-            if (overwrite && client.Exists(newRemote))
-                client.DeleteFile(newRemote);
-            client.RenameFile(oldRemote, newRemote);
+
+            // Resolve canonical parent paths so renaming inside a symlinked directory
+            // passes matching real paths for both old and new locations (even though newRemote doesn't exist yet).
+            var resolvedOld = ResolveCanonicalChildPath(client, oldRemote);
+            var resolvedNew = ResolveCanonicalChildPath(client, newRemote);
+
+            if (overwrite && client.Exists(resolvedNew))
+            {
+                var targetAttrs = client.GetAttributes(resolvedNew);
+                if (targetAttrs.IsDirectory)
+                    client.DeleteDirectory(resolvedNew);
+                else
+                    client.DeleteFile(resolvedNew);
+            }
+
+            try
+            {
+                client.RenameFile(resolvedOld, resolvedNew, isPosix: true);
+            }
+            catch (Exception ex) when (client.IsConnected && ex is not UnauthorizedAccessException)
+            {
+                // Fallback to standard SFTP v3 rename if server doesn't support posix-rename@openssh.com
+                client.RenameFile(resolvedOld, resolvedNew, isPosix: false);
+            }
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    private static string ResolveCanonicalChildPath(SftpClient client, string remotePath)
+    {
+        var trimmed = remotePath.TrimEnd('/');
+        var lastSlash = trimmed.LastIndexOf('/');
+        if (lastSlash < 0)
+            return remotePath;
+
+        var parent = lastSlash == 0 ? "/" : trimmed[..lastSlash];
+        var name = trimmed[(lastSlash + 1)..];
+        if (string.IsNullOrEmpty(name))
+            return remotePath;
+
+        try
+        {
+            var canonicalParent = client.Get(parent).FullName.TrimEnd('/');
+            return string.IsNullOrEmpty(canonicalParent) ? $"/{name}" : $"{canonicalParent}/{name}";
+        }
+        catch
+        {
+            return remotePath;
         }
     }
 

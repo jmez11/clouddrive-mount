@@ -1420,10 +1420,34 @@ public sealed class CloudDriveFileSystem : FileSystemBase, IDisposable
             return STATUS_OBJECT_NAME_COLLISION;
 
         var ctx = (OpenHandleContext)FileDesc0;
-        if (ctx.IsDirty)
-            FlushContextToRemote(ctx);
+        try
+        {
+            if (ctx.IsDirty)
+                FlushContextToRemote(ctx);
 
-        _provider.RenameAsync(oldVPath, newVPath, ReplaceIfExists).GetAwaiter().GetResult();
+            _provider.RenameAsync(oldVPath, newVPath, ReplaceIfExists).GetAwaiter().GetResult();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return STATUS_ACCESS_DENIED;
+        }
+        catch (FileNotFoundException)
+        {
+            return STATUS_OBJECT_NAME_NOT_FOUND;
+        }
+        catch (Exception ex) when (ex.GetType().Name.Contains("PermissionDenied", StringComparison.OrdinalIgnoreCase))
+        {
+            return STATUS_ACCESS_DENIED;
+        }
+        catch (Exception ex) when (ex.GetType().Name.Contains("NotFound", StringComparison.OrdinalIgnoreCase))
+        {
+            return STATUS_OBJECT_NAME_NOT_FOUND;
+        }
+        catch
+        {
+            return STATUS_UNEXPECTED_IO_ERROR;
+        }
+
         ctx.VirtualPath = newVPath;
         InvalidatePathAndParent(oldVPath);
         InvalidatePathAndParent(newVPath);
